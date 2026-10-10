@@ -1,0 +1,60 @@
+{
+  "approved_on": "2026-10-10",
+  "approved_by": "Puzzle League owner via explicit agreement in chat",
+  "contract_status": "DECIDED",
+  "implementation_scope": "standalone POC previews, no league award or server writes",
+  "parser_version": "0.4.0-poc",
+  "rule_versions": {
+    "wordle": "wordle-fixed-v1-approved",
+    "minute_cryptic": "minute-cryptic-hints-v1-approved",
+    "foximax": "foximax-original-n8-v1-approved",
+    "polygonle": "polygonle-standard-v1-approved",
+    "krillion": "krillion-daily-absolute700-v1-approved"
+  },
+  "participation_points_for_accepted_completed": 1,
+  "skipped_total_points": 0,
+  "streaks_contribute_to_championship": false,
+  "combined_score": "sum_per_eligible_games",
+  "recorded_average_fairness_acceptance_for_initial_pilot": true,
+  "rule_freeze": "season version snapshot required in later phases",
+  "review_policy": "all unverified puzzle identity/daily mode, malformed and historic shares queued for review",
+  "formulae": {
+    "wordle": {
+      "1": 10,
+      "2": 8,
+      "3": 6,
+      "4": 4,
+      "5": 2,
+      "6": 1,
+      "X": 0
+    },
+    "minute_cryptic": "max(0,10-hints_used)",
+    "foximax_original_daily_n8": {
+      "1": 10,
+      "2": 9,
+      "3": 7,
+      "4": 6,
+      "5": 5,
+      "6": 4,
+      "7": 2,
+      "8": 1,
+      "X": 0
+    },
+    "polygonle_standard_daily": {
+      "1": 10,
+      "2": 8,
+      "3": 6,
+      "4": 4,
+      "5": 2,
+      "6": 1,
+      "😔": 0
+    },
+    "krillion_daily": "min(10,(reported_score+35)//70), score=0..700"
+  },
+  "notes": [
+    "par and solve time not scoring inputs",
+    "FoxiMax letters not scoring inputs",
+    "Polygonle word length/difficulty no bonus",
+    "Krillion symbols not scoring inputs"
+  ]
+}

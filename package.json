@@ -1,0 +1,36 @@
+{
+  "name": "puzzle-league",
+  "private": true,
+  "version": "0.1.0-foundation",
+  "type": "module",
+  "description": "Puzzle League mobile-first PWA foundation (no real submissions/scoring yet)",
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b",
+    "lint": "oxlint src",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify:offline": "node --test tests/foundation.test.mjs",
+    "check": "npm run typecheck && npm run lint && npm run test && npm run build"
+  },
+  "dependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "oxlint": "^1.87.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.3",
+    "vitest": "^5.0.0"
+  }
+}

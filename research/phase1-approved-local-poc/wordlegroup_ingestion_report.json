@@ -1,0 +1,46 @@
+{
+  "source_archive": "WordleGroup.zip",
+  "export_used": "chat.txt",
+  "alternate_representation_not_counted": "chat.md",
+  "message_records": 432,
+  "approved_game_records": 258,
+  "other_messages_excluded": 174,
+  "game_counts": {
+    "foximax": 70,
+    "krillion": 21,
+    "minute_cryptic": 33,
+    "polygonle": 18,
+    "wordle": 116
+  },
+  "original_status_counts": {
+    "foximax": {
+      "needs_review": 70
+    },
+    "krillion": {
+      "needs_review": 21
+    },
+    "minute_cryptic": {
+      "recognized_valid": 33
+    },
+    "polygonle": {
+      "needs_review": 18
+    },
+    "wordle": {
+      "recognized_valid": 115,
+      "needs_review": 1
+    }
+  },
+  "distinct_candidate_puzzles": {
+    "foximax": 40,
+    "krillion": 13,
+    "minute_cryptic": 28,
+    "polygonle": 11,
+    "wordle": 45
+  },
+  "repeat_transport_sender_game_puzzle_candidates": 0,
+  "pseudonymous_transport_senders": 5,
+  "nonshare_wordle_comments_removed_from_public_fixtures": 1,
+  "source_authenticity_verified": false,
+  "server_duplicate_enforcement_tested": false,
+  "points_awarded": 0
+}

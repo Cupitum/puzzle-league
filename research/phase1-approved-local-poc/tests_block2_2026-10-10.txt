@@ -1,0 +1,31 @@
+test_bad_minute_cryptic (test_parser.ParsingTests.test_bad_minute_cryptic) ... ok
+test_bad_wordle_rows (test_parser.ParsingTests.test_bad_wordle_rows) ... ok
+test_bad_wordle_win (test_parser.ParsingTests.test_bad_wordle_win) ... ok
+test_catalogue_games_review (test_parser.ParsingTests.test_catalogue_games_review) ... ok
+test_chat_not_game (test_parser.ParsingTests.test_chat_not_game) ... ok
+test_message_split (test_parser.ParsingTests.test_message_split) ... ok
+test_minute_cryptic (test_parser.ParsingTests.test_minute_cryptic) ... ok
+test_no_auto_scoring (test_parser.ParsingTests.test_no_auto_scoring) ... ok
+test_real_wordle (test_parser.ParsingTests.test_real_wordle) ... ok
+test_unrecognized (test_parser.ParsingTests.test_unrecognized) ... ok
+test_wordle_failure (test_parser.ParsingTests.test_wordle_failure) ... ok
+test_all_five_puzzle_identity_fields (test_phase1_block2.IdentityCandidateTests.test_all_five_puzzle_identity_fields) ... ok
+test_cannot_use_unsupported_or_invalid_identity (test_phase1_block2.IdentityCandidateTests.test_cannot_use_unsupported_or_invalid_identity) ... ok
+test_cross_player_same_wordle_puzzle_not_same_account (test_phase1_block2.IdentityCandidateTests.test_cross_player_same_wordle_puzzle_not_same_account) ... ok
+test_foximax_three_typed (test_phase1_block2.NewFixtureTests.test_foximax_three_typed) ... ok
+test_krillion_values_are_opaque (test_phase1_block2.NewFixtureTests.test_krillion_values_are_opaque) ... ok
+test_malformed_extra_games_no_valid_scoring (test_phase1_block2.NewFixtureTests.test_malformed_extra_games_no_valid_scoring) ... ok
+test_message_count_and_ignored_globle (test_phase1_block2.NewFixtureTests.test_message_count_and_ignored_globle) ... ok
+test_new_minute_cryptic_emoji_and_par (test_phase1_block2.NewFixtureTests.test_new_minute_cryptic_emoji_and_par) ... ok
+test_no_extra_games_auto_award (test_phase1_block2.NewFixtureTests.test_no_extra_games_auto_award) ... ok
+test_polygonle_win_loss_variants (test_phase1_block2.NewFixtureTests.test_polygonle_win_loss_variants) ... ok
+test_previous_minute_cryptic_regression (test_phase1_block2.NewFixtureTests.test_previous_minute_cryptic_regression) ... ok
+test_six_wordle_results (test_phase1_block2.NewFixtureTests.test_six_wordle_results) ... ok
+test_approved_wordle_all_performance_tiers (test_phase1_block2.ScorePreviewTests.test_approved_wordle_all_performance_tiers) ... ok
+test_cannot_score_unsupported_game (test_phase1_block2.ScorePreviewTests.test_cannot_score_unsupported_game) ... ok
+test_minute_cryptic_provisional_results (test_phase1_block2.ScorePreviewTests.test_minute_cryptic_provisional_results) ... ok
+
+----------------------------------------------------------------------
+Ran 26 tests in 0.001s
+
+OK

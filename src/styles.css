@@ -1,0 +1,15 @@
+* { box-sizing: border-box; }
+:root { font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #17333b; background: #f5f7f6; font-synthesis: none; text-rendering: optimizeLegibility; }
+body { margin: 0; min-width: 320px; }
+.page { max-width: 830px; margin: 0 auto; padding: clamp(24px, 5vw, 70px) 24px; }
+.eyebrow { font-size: 0.76rem; text-transform: uppercase; letter-spacing: .16em; color: #49726a; font-weight: 700; }
+h1 { font-size: clamp(2.1rem, 5.2vw, 3.8rem); margin: .3rem 0 1rem; line-height: 1.07; }
+.intro { max-width: 620px; line-height: 1.7; color: #445f65; }
+.panel { margin-top: 40px; background: #fff; border: 1px solid #dce6e1; border-radius: 18px; padding: clamp(20px, 4vw, 30px); box-shadow: 0 12px 24px #1033340a; }
+.section-heading { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
+h2 { font-size: 1.15rem; margin: 0; }
+.pill { background: #eef4f1; color: #315e52; border-radius: 100px; padding: 5px 10px; font-size: .75rem; }
+.game-list { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 10px; }
+.game-list li { border-radius: 12px; padding: 18px 14px; background: #f6f8f7; border: 1px solid #e5ebe7; font-weight: 600; }
+.small, footer { font-size: .88rem; color: #5c7174; line-height: 1.6; }
+footer { padding: 26px 2px; }

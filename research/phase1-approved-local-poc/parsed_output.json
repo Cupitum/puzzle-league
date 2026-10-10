@@ -1,0 +1,614 @@
+[
+  {
+    "transport": {
+      "time": "06:05",
+      "date": "07/10/2026",
+      "sender": "Player A"
+    },
+    "parsed": {
+      "parser_version": "0.3.0-poc",
+      "game": "wordle",
+      "status": "recognized_valid",
+      "raw_text": "Wordle 1,936 5/6\n\n⬜⬜🟩⬜⬜\n⬜🟩🟩⬜⬜\n⬜🟩🟩⬜⬜\n🟩🟩🟩⬜🟩\n🟩🟩🟩🟩🟩",
+      "fields": {
+        "puzzle_number": 1936,
+        "attempts": 5,
+        "completed_failure": false,
+        "grid": [
+          [
+            "⬜",
+            "⬜",
+            "🟩",
+            "⬜",
+            "⬜"
+          ],
+          [
+            "⬜",
+            "🟩",
+            "🟩",
+            "⬜",
+            "⬜"
+          ],
+          [
+            "⬜",
+            "🟩",
+            "🟩",
+            "⬜",
+            "⬜"
+          ],
+          [
+            "🟩",
+            "🟩",
+            "🟩",
+            "⬜",
+            "🟩"
+          ],
+          [
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩"
+          ]
+        ],
+        "puzzle_date": null
+      },
+      "issues": [
+        "puzzle_date_not_verified"
+      ],
+      "scoring_eligible": false
+    }
+  },
+  {
+    "transport": {
+      "time": "16:22",
+      "date": "07/10/2026",
+      "sender": "Player B"
+    },
+    "parsed": {
+      "parser_version": "0.3.0-poc",
+      "game": "wordle",
+      "status": "recognized_valid",
+      "raw_text": "Wordle 1,936 4/6\n\n⬛⬛🟩🟨🟩\n⬛🟩⬛⬛⬛\n🟨⬛⬛🟨🟨\n🟩🟩🟩🟩🟩",
+      "fields": {
+        "puzzle_number": 1936,
+        "attempts": 4,
+        "completed_failure": false,
+        "grid": [
+          [
+            "⬛",
+            "⬛",
+            "🟩",
+            "🟨",
+            "🟩"
+          ],
+          [
+            "⬛",
+            "🟩",
+            "⬛",
+            "⬛",
+            "⬛"
+          ],
+          [
+            "🟨",
+            "⬛",
+            "⬛",
+            "🟨",
+            "🟨"
+          ],
+          [
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩"
+          ]
+        ],
+        "puzzle_date": null
+      },
+      "issues": [
+        "puzzle_date_not_verified"
+      ],
+      "scoring_eligible": false
+    }
+  },
+  {
+    "transport": {
+      "time": "16:33",
+      "date": "07/10/2026",
+      "sender": "Player A"
+    },
+    "parsed": {
+      "parser_version": "0.3.0-poc",
+      "game": "foximax",
+      "status": "needs_review",
+      "raw_text": "🦊#FoxiMax #1502 7/8 (19 letters)\nhttps://foximax.com/\n\n🟩🟩🟩🟩🟩\n🟩🟩🟩🟩🟩\n⬜🟩🟩🟩🟩\n🟩🟩🟩⬜🟩\n⬜🟩⬜🟩🟩\n🟩🟩⬜🟩🟩\n🟩🟩🟩⬜⬜",
+      "fields": {
+        "puzzle_number": 1502,
+        "fraction_numerator": 7,
+        "fraction_denominator": 8,
+        "completed_failure": false,
+        "letter_count_displayed": 19,
+        "grid": [
+          [
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩"
+          ],
+          [
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩"
+          ],
+          [
+            "⬜",
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩"
+          ],
+          [
+            "🟩",
+            "🟩",
+            "🟩",
+            "⬜",
+            "🟩"
+          ],
+          [
+            "⬜",
+            "🟩",
+            "⬜",
+            "🟩",
+            "🟩"
+          ],
+          [
+            "🟩",
+            "🟩",
+            "⬜",
+            "🟩",
+            "🟩"
+          ],
+          [
+            "🟩",
+            "🟩",
+            "🟩",
+            "⬜",
+            "⬜"
+          ]
+        ],
+        "puzzle_date": null
+      },
+      "issues": [
+        "typed_format_only",
+        "scoring_not_approved",
+        "puzzle_date_not_verified"
+      ],
+      "scoring_eligible": false
+    }
+  },
+  {
+    "transport": {
+      "time": "22:03",
+      "date": "07/10/2026",
+      "sender": "Player A"
+    },
+    "parsed": {
+      "parser_version": "0.3.0-poc",
+      "game": "krillion",
+      "status": "needs_review",
+      "raw_text": "Krillion #84 🦐\n90\n\n⬛🫧🐟🐟🫧⬛🫧",
+      "fields": {
+        "puzzle_number": 84,
+        "header_symbol_raw": "🦐",
+        "reported_number": 90,
+        "symbol_trail_raw": "⬛🫧🐟🐟🫧⬛🫧",
+        "puzzle_date": null
+      },
+      "issues": [
+        "typed_format_only",
+        "numeric_meaning_unverified",
+        "symbols_meaning_unverified",
+        "scoring_not_approved",
+        "puzzle_date_not_verified"
+      ],
+      "scoring_eligible": false
+    }
+  },
+  {
+    "transport": {
+      "time": "22:03",
+      "date": "07/10/2026",
+      "sender": "Player A"
+    },
+    "parsed": {
+      "parser_version": "0.3.0-poc",
+      "game": null,
+      "status": "unrecognized",
+      "raw_text": "🤣🤣🥺",
+      "fields": {},
+      "issues": [
+        "unsupported_or_non_game_message"
+      ],
+      "scoring_eligible": false
+    }
+  },
+  {
+    "transport": {
+      "time": "22:03",
+      "date": "07/10/2026",
+      "sender": "Player A"
+    },
+    "parsed": {
+      "parser_version": "0.3.0-poc",
+      "game": null,
+      "status": "unrecognized",
+      "raw_text": "En poly sukkel ek te veel mee. Een kans oor.",
+      "fields": {},
+      "issues": [
+        "unsupported_or_non_game_message"
+      ],
+      "scoring_eligible": false
+    }
+  },
+  {
+    "transport": {
+      "time": "22:17",
+      "date": "07/10/2026",
+      "sender": "Player B"
+    },
+    "parsed": {
+      "parser_version": "0.3.0-poc",
+      "game": "minute_cryptic",
+      "status": "recognized_valid",
+      "raw_text": "Minute Cryptic - 7 October, 2026\n\"Conditions of entry in Ironwomen v. Ironmen tournament\" (11)\n⚪️🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣\n🏆 1 hints – 1 under the community par (193,448 solvers so far). Time: 49s.\nhttps://www.minutecryptic.com/?utm_source=share",
+      "fields": {
+        "puzzle_date": "2026-10-07",
+        "clue": "\"Conditions of entry in Ironwomen v. Ironmen tournament\" (11)",
+        "hints_used": 1,
+        "signed_under_par_difference": 1,
+        "solver_count_observed": 193448,
+        "time_display": "49s",
+        "puzzle_number": null,
+        "result_icon": "🏆"
+      },
+      "issues": [
+        "community_par_semantics_unverified",
+        "hint_taxonomy_unverified"
+      ],
+      "scoring_eligible": false
+    }
+  },
+  {
+    "transport": {
+      "time": "22:35",
+      "date": "07/10/2026",
+      "sender": "Player A"
+    },
+    "parsed": {
+      "parser_version": "0.3.0-poc",
+      "game": "polygonle",
+      "status": "needs_review",
+      "raw_text": "#Polygonle 1529 😔/6︎\n ◥︎   ◼️︎  ◢︎  ◣︎  ⬢︎  ◢︎  ◣︎  ◤︎ \n⬛⬛⬛⬛⬛🟨⬛🟨\n⬛🟨⬛⬛🟩⬛⬛⬛\n⬛🟨🟨⬛🟨⬛⬛🟨\n⬛⬛🟨⬛🟩⬛⬛⬛\n🟨⬛⬛🟨🟩⬛⬛⬛\n⬛⬛⬛🟨🟨🟨🟨⬛\nhttps://www.polygonle.com",
+      "fields": {
+        "puzzle_number": 1529,
+        "attempts": null,
+        "completed_failure": true,
+        "attempt_limit_displayed": 6,
+        "pattern_header_raw": "◥︎   ◼️︎  ◢︎  ◣︎  ⬢︎  ◢︎  ◣︎  ◤︎",
+        "word_length_observed": 8,
+        "grid": [
+          [
+            "⬛",
+            "⬛",
+            "⬛",
+            "⬛",
+            "⬛",
+            "🟨",
+            "⬛",
+            "🟨"
+          ],
+          [
+            "⬛",
+            "🟨",
+            "⬛",
+            "⬛",
+            "🟩",
+            "⬛",
+            "⬛",
+            "⬛"
+          ],
+          [
+            "⬛",
+            "🟨",
+            "🟨",
+            "⬛",
+            "🟨",
+            "⬛",
+            "⬛",
+            "🟨"
+          ],
+          [
+            "⬛",
+            "⬛",
+            "🟨",
+            "⬛",
+            "🟩",
+            "⬛",
+            "⬛",
+            "⬛"
+          ],
+          [
+            "🟨",
+            "⬛",
+            "⬛",
+            "🟨",
+            "🟩",
+            "⬛",
+            "⬛",
+            "⬛"
+          ],
+          [
+            "⬛",
+            "⬛",
+            "⬛",
+            "🟨",
+            "🟨",
+            "🟨",
+            "🟨",
+            "⬛"
+          ]
+        ],
+        "streak_displayed": null,
+        "puzzle_date": null
+      },
+      "issues": [
+        "typed_format_only",
+        "scoring_not_approved",
+        "puzzle_date_not_verified"
+      ],
+      "scoring_eligible": false
+    }
+  },
+  {
+    "transport": {
+      "time": "22:58",
+      "date": "07/10/2026",
+      "sender": "Player B"
+    },
+    "parsed": {
+      "parser_version": "0.3.0-poc",
+      "game": "foximax",
+      "status": "needs_review",
+      "raw_text": "🦊#FoxiMax #1502 8/8 (20 letters)\nhttps://foximax.com/\n\n🟩🟩🟩🟩🟩\n🟩🟩🟩⬜🟩\n⬜🟩🟩🟩🟩\n🟩⬜🟩⬜🟩\n⬜🟩⬜🟩🟩\n🟩🟩⬜🟩⬜\n🟩⬜⬜⬜🟩\n⬜🟩🟩⬜⬜",
+      "fields": {
+        "puzzle_number": 1502,
+        "fraction_numerator": 8,
+        "fraction_denominator": 8,
+        "completed_failure": false,
+        "letter_count_displayed": 20,
+        "grid": [
+          [
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩"
+          ],
+          [
+            "🟩",
+            "🟩",
+            "🟩",
+            "⬜",
+            "🟩"
+          ],
+          [
+            "⬜",
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩"
+          ],
+          [
+            "🟩",
+            "⬜",
+            "🟩",
+            "⬜",
+            "🟩"
+          ],
+          [
+            "⬜",
+            "🟩",
+            "⬜",
+            "🟩",
+            "🟩"
+          ],
+          [
+            "🟩",
+            "🟩",
+            "⬜",
+            "🟩",
+            "⬜"
+          ],
+          [
+            "🟩",
+            "⬜",
+            "⬜",
+            "⬜",
+            "🟩"
+          ],
+          [
+            "⬜",
+            "🟩",
+            "🟩",
+            "⬜",
+            "⬜"
+          ]
+        ],
+        "puzzle_date": null
+      },
+      "issues": [
+        "typed_format_only",
+        "scoring_not_approved",
+        "puzzle_date_not_verified"
+      ],
+      "scoring_eligible": false
+    }
+  },
+  {
+    "transport": {
+      "time": "23:01",
+      "date": "07/10/2026",
+      "sender": "Player B"
+    },
+    "parsed": {
+      "parser_version": "0.3.0-poc",
+      "game": "polygonle",
+      "status": "needs_review",
+      "raw_text": "#Polygonle 1529 3/6︎\n ◥︎   ◼️︎  ◢︎  ◣︎  ⬢︎  ◢︎  ◣︎  ◤︎ \n🟨⬜⬜⬜⬜⬜⬜⬜\n⬜🟩⬜🟩⬜🟨🟨⬜\n🟩🟩🟩🟩🟩🟩🟩🟩\n\n🔥 streak:22\nhttps://www.polygonle.com",
+      "fields": {
+        "puzzle_number": 1529,
+        "attempts": 3,
+        "completed_failure": false,
+        "attempt_limit_displayed": 6,
+        "pattern_header_raw": "◥︎   ◼️︎  ◢︎  ◣︎  ⬢︎  ◢︎  ◣︎  ◤︎",
+        "word_length_observed": 8,
+        "grid": [
+          [
+            "🟨",
+            "⬜",
+            "⬜",
+            "⬜",
+            "⬜",
+            "⬜",
+            "⬜",
+            "⬜"
+          ],
+          [
+            "⬜",
+            "🟩",
+            "⬜",
+            "🟩",
+            "⬜",
+            "🟨",
+            "🟨",
+            "⬜"
+          ],
+          [
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩"
+          ]
+        ],
+        "streak_displayed": 22,
+        "puzzle_date": null
+      },
+      "issues": [
+        "typed_format_only",
+        "scoring_not_approved",
+        "puzzle_date_not_verified"
+      ],
+      "scoring_eligible": false
+    }
+  },
+  {
+    "transport": {
+      "time": "23:05",
+      "date": "07/10/2026",
+      "sender": "Player B"
+    },
+    "parsed": {
+      "parser_version": "0.3.0-poc",
+      "game": "krillion",
+      "status": "needs_review",
+      "raw_text": "Krillion #84 🦐\n440\n\n🏮🦑🏮🦑🐟🦑🦑",
+      "fields": {
+        "puzzle_number": 84,
+        "header_symbol_raw": "🦐",
+        "reported_number": 440,
+        "symbol_trail_raw": "🏮🦑🏮🦑🐟🦑🦑",
+        "puzzle_date": null
+      },
+      "issues": [
+        "typed_format_only",
+        "numeric_meaning_unverified",
+        "symbols_meaning_unverified",
+        "scoring_not_approved",
+        "puzzle_date_not_verified"
+      ],
+      "scoring_eligible": false
+    }
+  },
+  {
+    "transport": {
+      "time": "10:30",
+      "date": "10/10/2026",
+      "sender": "Player A"
+    },
+    "parsed": {
+      "parser_version": "0.3.0-poc",
+      "game": "foximax",
+      "status": "needs_review",
+      "raw_text": "🦊#FoxiMax #1505 5/8 (16 letters)\nhttps://foximax.com/\n\n🟩🟩🟩🟩🟩\n🟩🟩🟩🟩🟩\n🟩🟩🟩🟩🟩\n🟩⬜⬜🟩🟩\n🟩⬜🟩⬜🟩",
+      "fields": {
+        "puzzle_number": 1505,
+        "fraction_numerator": 5,
+        "fraction_denominator": 8,
+        "completed_failure": false,
+        "letter_count_displayed": 16,
+        "grid": [
+          [
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩"
+          ],
+          [
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩"
+          ],
+          [
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩",
+            "🟩"
+          ],
+          [
+            "🟩",
+            "⬜",
+            "⬜",
+            "🟩",
+            "🟩"
+          ],
+          [
+            "🟩",
+            "⬜",
+            "🟩",
+            "⬜",
+            "🟩"
+          ]
+        ],
+        "puzzle_date": null
+      },
+      "issues": [
+        "typed_format_only",
+        "scoring_not_approved",
+        "puzzle_date_not_verified"
+      ],
+      "scoring_eligible": false
+    }
+  }
+]

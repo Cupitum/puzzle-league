@@ -1,0 +1,47 @@
+{
+  "status": "candidate_only_not_approved_not_awarded",
+  "sample_source": "pseudonymized WordleGroup 258 examples",
+  "caveat": "descriptive sample comparisons only; not expected future population distribution",
+  "game_stats": {
+    "foximax": {
+      "sample_count": 70,
+      "mean_candidate_performance": 3.44,
+      "median_candidate_performance": 4.0,
+      "mean_candidate_total_including_participation": 4.44,
+      "min_candidate_performance": 0,
+      "max_candidate_performance": 10
+    },
+    "krillion": {
+      "sample_count": 21,
+      "mean_candidate_performance": 2.76,
+      "median_candidate_performance": 3,
+      "mean_candidate_total_including_participation": 3.76,
+      "min_candidate_performance": 1,
+      "max_candidate_performance": 6
+    },
+    "minute_cryptic": {
+      "sample_count": 33,
+      "mean_candidate_performance": 6.85,
+      "median_candidate_performance": 8,
+      "mean_candidate_total_including_participation": 7.85,
+      "min_candidate_performance": 0,
+      "max_candidate_performance": 10
+    },
+    "polygonle": {
+      "sample_count": 18,
+      "mean_candidate_performance": 5.78,
+      "median_candidate_performance": 6.0,
+      "mean_candidate_total_including_participation": 6.78,
+      "min_candidate_performance": 0,
+      "max_candidate_performance": 8
+    },
+    "wordle": {
+      "sample_count": 116,
+      "mean_candidate_performance": 2.92,
+      "median_candidate_performance": 2.0,
+      "mean_candidate_total_including_participation": 3.92,
+      "min_candidate_performance": 0,
+      "max_candidate_performance": 8
+    }
+  }
+}

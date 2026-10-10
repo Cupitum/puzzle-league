@@ -1,0 +1,62 @@
+{
+  "status": "owner_approved_rules_unawarded_local_score_previews",
+  "parser_version": "0.4.0-poc",
+  "source": "258 pseudonymised puzzle-only results extracted from 432 WhatsApp messages",
+  "sample_authenticity": "not independently verified",
+  "awarded_points": 0,
+  "accepted_submissions": 0,
+  "server_eligibility_tests": "NOT IMPLEMENTED",
+  "notes": "Not league standings; descriptive totals for submitted sample shares only",
+  "by_game": {
+    "foximax": {
+      "share_count": 70,
+      "preview_performance_sum": 241,
+      "preview_total_sum": 311,
+      "review_only_count": 70,
+      "awards": 0,
+      "rule_version": "foximax-original-n8-v1-approved",
+      "mean_total": 4.4429,
+      "mean_performance": 3.4429
+    },
+    "krillion": {
+      "share_count": 21,
+      "preview_performance_sum": 58,
+      "preview_total_sum": 79,
+      "review_only_count": 21,
+      "awards": 0,
+      "rule_version": "krillion-daily-absolute700-v1-approved",
+      "mean_total": 3.7619,
+      "mean_performance": 2.7619
+    },
+    "minute_cryptic": {
+      "share_count": 33,
+      "preview_performance_sum": 226,
+      "preview_total_sum": 259,
+      "review_only_count": 0,
+      "awards": 0,
+      "rule_version": "minute-cryptic-hints-v1-approved",
+      "mean_total": 7.8485,
+      "mean_performance": 6.8485
+    },
+    "polygonle": {
+      "share_count": 18,
+      "preview_performance_sum": 104,
+      "preview_total_sum": 122,
+      "review_only_count": 18,
+      "awards": 0,
+      "rule_version": "polygonle-standard-v1-approved",
+      "mean_total": 6.7778,
+      "mean_performance": 5.7778
+    },
+    "wordle": {
+      "share_count": 116,
+      "preview_performance_sum": 339,
+      "preview_total_sum": 455,
+      "review_only_count": 0,
+      "awards": 0,
+      "rule_version": "wordle-fixed-v1-approved",
+      "mean_total": 3.9224,
+      "mean_performance": 2.9224
+    }
+  }
+}

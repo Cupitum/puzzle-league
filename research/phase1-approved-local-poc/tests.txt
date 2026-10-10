@@ -1,0 +1,16 @@
+test_bad_minute_cryptic (test_parser.ParsingTests.test_bad_minute_cryptic) ... ok
+test_bad_wordle_rows (test_parser.ParsingTests.test_bad_wordle_rows) ... ok
+test_bad_wordle_win (test_parser.ParsingTests.test_bad_wordle_win) ... ok
+test_catalogue_games_review (test_parser.ParsingTests.test_catalogue_games_review) ... ok
+test_chat_not_game (test_parser.ParsingTests.test_chat_not_game) ... ok
+test_message_split (test_parser.ParsingTests.test_message_split) ... ok
+test_minute_cryptic (test_parser.ParsingTests.test_minute_cryptic) ... ok
+test_no_auto_scoring (test_parser.ParsingTests.test_no_auto_scoring) ... ok
+test_real_wordle (test_parser.ParsingTests.test_real_wordle) ... ok
+test_unrecognized (test_parser.ParsingTests.test_unrecognized) ... ok
+test_wordle_failure (test_parser.ParsingTests.test_wordle_failure) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.004s
+
+OK
