@@ -1,0 +1,35 @@
+name: Verify Puzzle League foundation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+
+      - name: Install Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Install Python for preserved Phase 1 research tests
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
+      - name: Install locked npm dependencies
+        run: npm ci
+
+      - name: Offline integrity, Python research, TypeScript, lint, Vitest and build
+        run: npm run check

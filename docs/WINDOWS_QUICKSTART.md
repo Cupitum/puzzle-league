@@ -1,46 +1,65 @@
-# Puzzle League — verify Phase 2 Block 1 on your Windows PC
+# Puzzle League — Phase 2 Block 2 Windows PowerShell handover
 
-These instructions are for PowerShell on Windows 10/11. Use the folder **puzzle-league** from the extracted ZIP, not the ZIP itself. No Supabase/Cloudflare/GitHub account required yet.
+This extends the developer's **existing clean `3f87610` Git repository**, not a fresh `git init` or a replaced project. Work only on **Steps 4–6**. The public frontend still displays a placeholder. Do not add secrets or enable Supabase, hosting, database or PWA functionality.
 
-## 1. Check what is installed (send actual output)
+## 0. Confirm the original Git source before changes
+
+Open PowerShell in the real `puzzle-league` project directory recorded in the v1.9 guide (or its new location).
 
 ```powershell
-node --version
-npm --version
-git --version
-py --version
+git status --short --branch
+git rev-parse --short HEAD
 ```
 
-Node.js **24 LTS** is the recommended target. A supported >=22.12 Node version is compatible with the declared foundation packages. Missing commands need installation before proceeding. Download Node from https://nodejs.org and Git from https://git-scm.com; VS Code from https://code.visualstudio.com if needed.
+Expected *before patching*: `## main` with no changes, and `3f87610`. If local work has been added since then, do **not** overwrite it or force a reset; review/backup the differences before continuing. The source ZIP is a commit archive with no `.git` history and should not replace the live working directory.
 
-## 2. Make and verify a local folder
+## 1. Apply the prepared Phase 2 Block 2 patch once
+
+Place the delivered `.patch` file **outside** the `puzzle-league` project directory (e.g. its parent folder). From inside the existing project root:
 
 ```powershell
-# Extract ZIP with Explorer, then open PowerShell and switch to its puzzle-league folder.
-cd "$HOME\Desktop\puzzle-league"
+# Change only the relative file path below if the patch was saved elsewhere.
+git apply --check ..\Puzzle_League_Phase2_Block2_Changes_from_3f87610.patch
+git apply ..\Puzzle_League_Phase2_Block2_Changes_from_3f87610.patch
+```
+
+Do not use `git apply --3way` or `--reject` blindly. If `--check` fails, inspect what differs before proceeding. The patch intentionally reorganizes the placeholder module locations; its deletions of old paths correspond to relocations, **not removal of product features**.
+
+## 2. Run the verifications in order
+
+```powershell
 node .\scripts\preflight.mjs
-node --test .\tests\foundation.test.mjs
+npm.cmd run verify:offline
+npm.cmd run test:research
+npm.cmd ci
+npm.cmd run check
+npm.cmd run dev
 ```
 
-The offline tests verify package structure and hashes for the immutable 35-file Python research snapshot; they do not verify a Vite install. Nothing in this command modifies your PC outside the extracted folder.
+Open the local URL printed by Vite and confirm the five approved games are shown. Stop the dev server with Ctrl+C. `npm.cmd run check` includes both standalone offline checks, so individual calls are helpful diagnostics but not replacements for the full command.
 
-## 3. Install and run the starter (needs npm internet access)
+If any command fails, copy the **actual output** and stop before committing; do not claim PASS or begin another phase.
+
+## 3. Review, stage and commit only after PASS
 
 ```powershell
-npm install
-npm run typecheck
-npm run lint
-npm test
-npm run build
-npm run dev
+git status --short --branch
+git diff --stat
+git diff --check
+# Review the changed paths and contents in your editor before staging.
+git add -A
+git diff --cached --check
+git diff --cached --stat
+git commit -m "chore: complete Puzzle League Phase 2 foundation"
+git log -1 --oneline
+git status --short --branch
 ```
 
-Open the **Local:** URL printed by Vite (usually `http://localhost:5173`), not a guessed deployed URL. The local placeholder page is NOT a live Puzzle League app. Stop with Ctrl+C.
+Expect a **new Git commit hash**; do not claim it is `3f87610`. `git status --short --branch` should show a clean `## main` if successful. Commit the approved project guide update only after its verified Windows test results have been recorded. Do not push to GitHub unless separately requested/authorized. CI exists as a workflow file but stays **NOT RUN REMOTELY** until an actual GitHub Actions run happens.
 
-Then run `git init -b main` inside the project directory and `git status --short` if Git is available; make an initial private commit only after review. The app starts locally before a GitHub remote is needed.
+## References
 
-Please send the preflight/command outputs (especially any errors), rather than assuming the local setup passed. If `npm install` creates `package-lock.json`, **retain it** for reproducible installs and later CI. Do not expose or upload `.env` secrets or any private unredacted WhatsApp archive.
-
-## Known testing limitation
-
-This preparation environment cannot reach the npm registry, so an actual `npm install`, React/Vite clean launch, Vitest run, lint and TypeScript build are **NOT TESTED** here. Offline Node tests and Python tests are separately observed. Their successful results cannot be substituted for your Windows PC's run.
+- `docs/MODULE_BOUNDARIES.md` — source layout decisions.
+- `docs/CONFIGURATION_AND_SECRETS.md` — `.env` and future Supabase policies.
+- `docs/CI_AND_TESTING.md` — commands and evidence interpretation.
+- Current separately delivered authoritative v2.0 checkpoint — prepared changes vs verified results.
