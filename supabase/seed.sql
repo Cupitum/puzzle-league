@@ -1,0 +1,3 @@
+-- Phase 3 Block 1: deliberately empty.
+-- Approved five-game catalogue rows are seeded by the baseline migration.
+-- Do not import real WhatsApp messages, accounts, or scoring data into local seeds.
