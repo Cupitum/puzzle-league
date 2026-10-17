@@ -78,9 +78,9 @@ export function parseShare(raw) {
   }
   if (/^🦊#foximax/iu.test(h)) return result('foximax','ambiguous',raw,{},['unrecognized_header']);
 
-  m=/^#Polygonle\s+([\d,]+)\s+([1-6]|😔)\/6[\uFE0E\uFE0F]?$/iu.exec(h);
+  m=/^#Polygonle\s+([\d,]+)\s+([1-6]|😔|🎯)[\uFE0E\uFE0F]?\/6[\uFE0E\uFE0F]?$/iu.exec(h);
   if (m) {
-    const n=Number(m[1].replaceAll(',','')), failed=m[2]==='😔', attempts=failed?null:Number(m[2]);
+    const n=Number(m[1].replaceAll(',','')), failed=m[2]==='😔', attempts=failed?null:(m[2]==='🎯'?1:Number(m[2]));
     if (!Number.isSafeInteger(n)||n<1) return result('polygonle','invalid',raw,{},['invalid_number']);
     const rest=lines.slice(1).filter(x=>!/^https?:\/\//u.test(x));
     if (!rest.length) return result('polygonle','ambiguous',raw,{},['no_pattern_header']);
