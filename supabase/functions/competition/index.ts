@@ -34,6 +34,17 @@ Deno.serve(async req => {
   }
   let data:Record<string,unknown>={...(body.data && typeof body.data==='object'&&!Array.isArray(body.data)
     ?body.data as Record<string,unknown>:{})};
+  if(action==='daily_dashboard' || action==='native_history') {
+    if(!actor) return json({error:'Authentication required'},401);
+    try {
+      const res=await fetch(`${url}/rest/v1/rpc/${action==='daily_dashboard'?'p6_daily_dashboard':'p6_native_history'}`,{
+        method:'POST',headers:{apikey:secret,authorization:`Bearer ${secret}`,
+          'content-type':'application/json',accept:'application/json'},
+        body:JSON.stringify({p_actor:actor})});
+      if(!res.ok) return json({error:'Personal dashboard unavailable',code:res.status},503);
+      return json({ok:true,result:await res.json()});
+    } catch {return json({error:'Personal dashboard unavailable'},503);}
+  }
   if(action==='submit') {
     if(typeof data.raw_text!=='string'||data.raw_text.length>16000)return json({error:'Share text required (max 16 KB)'},400);
     if(!['paste','android_share','historical_import'].includes(String(data.method))) return json({error:'Invalid submission method'},400);
