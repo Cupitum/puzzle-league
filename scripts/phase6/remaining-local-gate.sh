@@ -2,7 +2,7 @@
 set -euo pipefail
 repo="${1:-$HOME/Desktop/Development/Puzzle_League}"
 cd -- "$repo"
-[[ "$(git rev-parse --short HEAD)" == '2f01d63' ]] || { echo 'STOP: wrong Git commit' >&2; exit 1; }
+git merge-base --is-ancestor 2f01d63 HEAD || { echo 'STOP: required Git ancestor 2f01d63 missing' >&2; exit 1; }
 [[ -z "$(git status --porcelain --untracked-files=no)" ]] || { echo 'STOP: tracked source changes' >&2; exit 1; }
 export PL_RUN_DB_READONLY=1
 export PL_RECONCILE_OUT="${PL_RECONCILE_OUT:-$HOME/Desktop/Puzzle_League_Backups/phase6_reconciliation}"

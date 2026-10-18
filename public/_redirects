@@ -1,0 +1,2 @@
+# React app deep links; the installed service worker handles POST /share-target.
+/* /index.html 200

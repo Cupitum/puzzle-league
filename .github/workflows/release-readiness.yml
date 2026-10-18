@@ -1,0 +1,27 @@
+name: Phase 6 release readiness (source only)
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  release-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Locked dependencies
+        run: npm ci
+      - name: Repository tests, typecheck, lint and Vite build (not production deployment)
+        run: npm run check
+      - name: Release policy contracts without any cloud secrets
+        run: node --test scripts/release/tests/release-contract.test.mjs

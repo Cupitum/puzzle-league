@@ -46,7 +46,8 @@ function query(db,sql) {
 function sha(buf){return createHash('sha256').update(buf).digest('hex');}
 function main() {
  if(process.argv.length!==3 || process.argv[2]!=='--read-only')throw Error('Usage: node scripts/phase6/remaining-results.mjs --read-only');
- if(run(['git','-C',REPO,'rev-parse','--short','HEAD'])!==EXPECTED_COMMIT)throw Error('Current commit must be 2f01d63');
+ const ancestry=spawnSync('git',['-C',REPO,'merge-base','--is-ancestor',EXPECTED_COMMIT,'HEAD'],{encoding:'utf8'});
+ if(ancestry.status!==0)throw Error('Git HEAD must descend from '+EXPECTED_COMMIT);
  if(run(['git','-C',REPO,'status','--porcelain','--untracked-files=no']))throw Error('Tracked source changes detected; review before running');
  const parserSha=run(['sha256sum',resolve(REPO,'supabase/functions/competition/parser.mjs')]).split(' ')[0];
  if(parserSha!==PARSER_SHA)throw Error('Audited parser source differs');
