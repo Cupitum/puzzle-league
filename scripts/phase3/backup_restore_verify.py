@@ -139,6 +139,11 @@ def main():
             uid = str(UUID(line))
             db_exec(clone, f"insert into auth.users(id) values ('{uid}'::uuid);")
         db_exec(clone,'drop schema public cascade;')  # ONLY on unique disposable DB
+        # Recreate the GiST UUID operator classes required by league_seasons.
+        # Install only in the isolated clone, before restoring application tables.
+        db_exec(clone,
+                'create schema if not exists extensions; '
+                'create extension if not exists btree_gist with schema extensions;')
         # Restore only to the disposable clone; preserve original object grants.
         # Supabase-managed default privileges cannot be replayed by postgres.
         restore_application_archive(app, clone)
@@ -148,9 +153,28 @@ def main():
                 raise RuntimeError(f'Isolated restore fingerprint mismatch: {table}')
         # Existing object grants and RLS must survive this app-schema restore;
         # server-managed DEFAULT ACLs for future objects are excluded.
-        rls = db_exec(clone, "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('public','app_private') and c.relkind='r' and c.relrowsecurity;")
-        if rls != str(len(TABLES)):
-            raise RuntimeError(f'Isolated restored RLS metadata incomplete ({rls}/{len(TABLES)})')
+        # Compare every application table's RLS configuration against source.
+        # TABLES is only the smaller fingerprint subset, not the full schema.
+        rls_query = (
+            "select n.nspname || '.' || c.relname || '|' || "
+            "c.relrowsecurity::text || '|' || c.relforcerowsecurity::text "
+            "from pg_class c "
+            "join pg_namespace n on n.oid = c.relnamespace "
+            "where n.nspname in ('public','app_private') "
+            "and c.relkind in ('r','p') "
+            "order by n.nspname, c.relname;"
+        )
+        source_rls = db_exec('postgres', rls_query).splitlines()
+        restored_rls = db_exec(clone, rls_query).splitlines()
+        if not source_rls or source_rls != restored_rls:
+            raise RuntimeError(
+                'Isolated restored RLS metadata differs from source '
+                f'(source={len(source_rls)}, restored={len(restored_rls)})'
+            )
+        print(
+            f'PASS: RLS metadata matches source across '
+            f'{len(source_rls)} application tables'
+        )
         grants = db_exec(clone, "select "
             "has_table_privilege('anon','public.games','SELECT')::int::text || '|' || "
             "has_table_privilege('authenticated','public.leagues','SELECT')::int::text || '|' || "
