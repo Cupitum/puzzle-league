@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { validateProductionEnv, productionCsp } from '../release-config.mjs';
+import { validateProductionEnv, productionCsp, validateProductionBundle } from '../release-config.mjs';
 const root = resolve(import.meta.dirname, '../../..');
 const file = (s) => readFileSync(join(root,s),'utf8');
 const base = {
@@ -71,4 +71,19 @@ test('CSP allows only the selected managed API as a connect target', () => {
   assert.match(csp, /frame-ancestors 'none'/u);
   assert.doesNotMatch(csp, /unsafe-eval|connect-src \*/u);
   assert.throws(() => productionCsp('http://localhost:54321'), /Unsafe CSP/u);
+});
+
+test('bundle permits validation prefix but rejects real secret values and local URLs', () => {
+  const api = base.VITE_SUPABASE_URL;
+  assert.doesNotThrow(() =>
+    validateProductionBundle(`key.startsWith('sb_secret_'); api='${api}'`, api));
+  assert.throws(() =>
+    validateProductionBundle(`api='${api}';key='sb_secret_abcdefghijklmnopqrstuv12345678'`, api),
+    /server-only key value/u);
+  assert.throws(() =>
+    validateProductionBundle(`api='${api}';url='http://127.0.0.1:54321'`, api),
+    /Development API URL/u);
+  assert.throws(() =>
+    validateProductionBundle("api='https://other.example'", api),
+    /Expected public HTTPS API origin/u);
 });

@@ -33,3 +33,12 @@ export function productionCsp(apiOrigin) {
     `connect-src 'self' ${apiOrigin}`, "worker-src 'self'", "manifest-src 'self'"
   ].join('; ');
 }
+
+/** Reject actual server credentials, not the browser's rejection-code prefix. */
+export function validateProductionBundle(bundles, apiOrigin) {
+  if (typeof bundles !== 'string' || !bundles.includes(apiOrigin))
+    throw new Error('Expected public HTTPS API origin not in bundled client');
+  if (bundles.includes('http://127.0.0.1:54321') ||
+      /sb_secret_[A-Za-z0-9_-]{12,}/u.test(bundles))
+    throw new Error('Development API URL or server-only key value detected in bundle');
+}
