@@ -19,6 +19,8 @@ try {
   const site = checkSite(process.env.RELEASE_SITE_URL);
   const root = await get(site + '/');
   if (!(await root.text()).includes('id="root"')) fail('Site did not serve the React HTML');
+  const deepLink = await get(site + '/__puzzle_league_deep_link_check__/');
+  if (!(await deepLink.text()).includes('id="root"')) fail('Pages SPA deep-link fallback failed');
   if (root.headers.get('x-content-type-options') !== 'nosniff') fail('Missing nosniff on site HTML');
   const csp = root.headers.get('content-security-policy') ?? '';
   if (!csp.includes(`connect-src 'self' ${cfg.apiOrigin}`) || !csp.includes("object-src 'none'"))

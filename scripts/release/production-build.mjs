@@ -10,7 +10,7 @@ try {
   const result = spawnSync(npm, ['run', 'build'], { cwd: root, stdio: 'inherit', env: process.env });
   if (result.status !== 0) throw new Error('Vite build did not pass');
   const dist = join(root, 'dist');
-  for (const name of ['index.html', 'manifest.webmanifest', 'sw.js', '_redirects', '_headers']) {
+  for (const name of ['index.html', 'manifest.webmanifest', 'sw.js', '_headers']) {
     if (!existsSync(join(dist, name))) throw new Error(`Distribution is missing ${name}`);
   }
   const manifest = JSON.parse(readFileSync(join(dist, 'manifest.webmanifest'), 'utf8'));

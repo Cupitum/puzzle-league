@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { validateProductionEnv, productionCsp, validateProductionBundle } from '../release-config.mjs';
 const root = resolve(import.meta.dirname, '../../..');
@@ -38,9 +38,11 @@ test('static headers protect SW, HTML and app shell', () => {
   assert.match(h,/\/sw\.js\s*\n\s*Cache-Control:/u);
   assert.match(h,/X-Frame-Options:\s*DENY/u);
 });
-test('SPA route fallback does not add POST network proxy', () => {
-  assert.match(file('public/_redirects'),/\/\*\s+\/index\.html\s+200/u);
-  assert.doesNotMatch(file('public/_redirects'),/https?:\/\//u);
+test('Cloudflare Pages native SPA fallback has no recursive rewrite or top-level 404', () => {
+  assert.equal(existsSync(join(root, 'public/_redirects')), false);
+  assert.equal(existsSync(join(root, 'public/404.html')), false);
+  assert.doesNotMatch(file('scripts/release/production-build.mjs'), /['"]_redirects['"]/u);
+  assert.match(file('scripts/release/hosted-smoke.mjs'), /__puzzle_league_deep_link_check__/u);
 });
 test('source service worker preserves POST Share Target and raw text privacy', () => {
   const sw=file('public/sw.js');

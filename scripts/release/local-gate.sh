@@ -5,7 +5,7 @@ git merge-base --is-ancestor 'ab7122b4e72c0396b95e1280f15e4032ef1c8903' HEAD || 
 [[ -z "$(git status --porcelain --untracked-files=no)" ]] || { echo 'STOP: commit tracked changes before full release gate' >&2; exit 1; }
 [[ "$(git branch --show-current)" == 'main' ]] || { echo 'STOP: main branch required' >&2; exit 1; }
 [[ -z "$(git diff --name-only -- supabase/migrations research)" ]] || { echo 'STOP: protected migration/research changes' >&2; exit 1; }
-for file in public/_headers public/_redirects scripts/release/production-build.mjs \
+for file in public/_headers scripts/release/production-build.mjs \
   scripts/release/release-config.mjs scripts/release/hosted-smoke.mjs \
   scripts/release/remote-dry-run.sh scripts/release/tests/release-contract.test.mjs \
   .github/workflows/release-readiness.yml; do
