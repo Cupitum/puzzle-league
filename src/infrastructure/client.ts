@@ -28,6 +28,34 @@ export function safeUrl(base: string, path: string): string {
   if (!path.startsWith('/') || path.startsWith('//') || path.includes('..')) throw new Error('Invalid backend path');
   return `${base}${path}`;
 }
+/** Advisory signup policy; the authoritative Auth server may enforce stricter rules. */
+export const signupPasswordRules = [
+  { label: 'At least 10 characters', check: (v: string) => v.length >= 10 },
+  { label: 'An uppercase and a lowercase letter', check: (v: string) => /[A-Z]/u.test(v) && /[a-z]/u.test(v) },
+  { label: 'A number', check: (v: string) => /[0-9]/u.test(v) },
+  { label: 'A special character (for example !, @ or #)', check: (v: string) => /[^A-Za-z0-9]/u.test(v) },
+];
+export const signupPasswordValid = (value: string) => signupPasswordRules.every(rule => rule.check(value));
+const authMessage: Record<string,string> = {
+  weak_password:'This password does not meet the authentication server requirements. Use a longer password containing uppercase and lowercase letters, a number and a symbol.',
+  user_already_exists:'This email may already have an account. Try signing in or use account recovery.',
+  email_exists:'This email may already have an account. Try signing in.',
+  signup_disabled:'Account registration is temporarily disabled by the authentication provider.',
+  email_not_confirmed:'Please complete the email confirmation first; check your inbox and spam folder.',
+  invalid_credentials:'Email or password is incorrect.',
+  over_request_rate_limit:'Too many attempts. Try again later.',
+  validation_failed:'The authentication service rejected the supplied information. Check your email and password requirements.',
+  email_address_invalid:'Enter a valid email address.',
+};
+export function safeAuthError(status:number,body:unknown):string {
+  const code = body && typeof body === 'object' && typeof (body as Payload).code === 'string'
+    ? String((body as Payload).code) : '';
+  const knownMessage = Object.prototype.hasOwnProperty.call(authMessage, code) ? authMessage[code] : undefined;
+  if (knownMessage !== undefined) return knownMessage;
+  if (status === 422) return 'Account could not be created (HTTP 422). Check the password requirements, email address and existing account status.';
+  if (status >= 500) return 'Authentication service error (HTTP 500). This may involve the signup database trigger or email delivery. Please contact the pilot administrator; no account or points were confirmed.';
+  return errorFromResponse(status);
+}
 function errorFromResponse(status: number): string {
   if (status === 400) return 'Request rejected. Check the email/password fields or email confirmation status.';
   if (status === 401) return 'Sign-in failed or your session expired. Verify your credentials and try again.';
@@ -66,7 +94,8 @@ export class CompetitionClient {
     catch { throw new ApiError('Network unavailable. Your action was not confirmed by the server.', 0); }
     let result: unknown;
     try { result = await response.json(); } catch { result = null; }
-    if (!response.ok) throw new ApiError(errorFromResponse(response.status), response.status);
+    if (!response.ok) throw new ApiError(path.startsWith('/auth/v1/')
+      ? safeAuthError(response.status, result) : errorFromResponse(response.status), response.status);
     return result;
   }
   private save(session: Session | null): void {
@@ -171,6 +200,7 @@ export class CompetitionClient {
     if (!email.includes('@') || password.length < 6) throw new ApiError('Enter a valid email and password (at least 6 characters).', 0);
     const username = requestedUsername?.trim() ?? '';
     if (signup && !validPublicUsername(username)) throw new ApiError('Choose a public username (3–40 letters, numbers, spaces, dots, dashes or underscores).', 0);
+    if (signup && !signupPasswordValid(password)) throw new ApiError('Choose a password that meets all four displayed security requirements.', 0);
     const payload = signup ? { email, password, data: { puzzle_league_nickname: username } } : { email, password };
     const body = await this.request(signup ? '/auth/v1/signup' : '/auth/v1/token?grant_type=password', 'POST', payload, false);
     const session = toSession(body);
@@ -181,8 +211,12 @@ export class CompetitionClient {
         ? 'Signed in, but your display name could not be saved. Update it under Player profile.'
         : 'Signed in securely.' };
     }
-    if (signup) return { session: null, message: 'Account request received. If email confirmation is required, confirm your email, then sign in. Your chosen display name will be applied at first login.' };
+    if (signup) return { session: null, message: 'Signup request received. Supabase confirmation is currently required: confirm your email before signing in. When the separate pilot verification flow is enabled, you will be able to sign in before verification.' };
     throw new ApiError('Sign-in returned no session. Check your credentials and email confirmation.', 401);
+  }
+  async resendNativeSignupConfirmation(email: string): Promise<void> {
+    if (!email.includes('@')) throw new ApiError('Enter your signup email address.', 0);
+    await this.request('/auth/v1/resend', 'POST', { type: 'signup', email }, false);
   }
   async signOut(): Promise<void> {
     try { if (this.session) await this.request('/auth/v1/logout', 'POST', {}, true); }

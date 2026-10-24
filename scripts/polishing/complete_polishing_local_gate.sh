@@ -5,7 +5,7 @@ umask 077
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 cd "$ROOT"
 fail(){ echo "BLOCKED: $*" >&2; exit 2; }
-[[ "$(git branch --show-current)" == 'feat/polishing-integrated-20261023' ]] || fail 'Not on polishing feature branch'
+[[ "$(git branch --show-current)" == 'feat/polishing-acceptance-20261024' ]] || fail 'Not on polishing feature branch'
 [[ -f supabase/migrations/20261023100200_polishing_identity_evidence.sql ]] || fail 'Missing evidence migration'
 [[ -f supabase/functions/competition/identity-evidence.mjs ]] || fail 'Missing five-game resolver'
 # Reject accidental historic migration rewrites; git show references LOCAL commit only.
@@ -17,7 +17,7 @@ for f in "${original[@]}"; do
 done
 # Remote credentials are never needed for this suite.
 unset SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD DATABASE_URL PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE
-printf 'PASS: original migrations untouched, candidate migration #16 present.\n'
+printf 'PASS: original migrations untouched, candidate migration #17 present.\n'
 node --test tests/polishing-sql-regex-contract.test.mjs tests/polishing-identity-evidence.test.mjs tests/polishing-submit-resolution.test.mjs
 bash scripts/polishing/run_grouped_live_gate.sh
 printf '\nPOLISHING CONSOLIDATED LOCAL ENGINEERING GATE PASS.\n'

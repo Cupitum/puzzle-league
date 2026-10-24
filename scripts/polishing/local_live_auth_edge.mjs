@@ -98,6 +98,29 @@ async function main(){
    {input:sql,encoding:'utf8',maxBuffer:1024*1024});
  assert.equal(d.status,0,'Isolated SQL fixture could not be created');
  pass('two synthetic private leagues and roles created in disposable Postgres');
+ // P8 independent email proof: new Auth users are NOT verified merely because
+ // the local GoTrue instance issues them signed tokens.
+ gateStage='unverified_account_permissions';
+ const unverified=await req('/rest/v1/rpc/p8_email_status','POST',
+   {p_actor:owner.id},priv());
+ assert.equal(unverified.status,200);
+ assert.equal(unverified.value?.verified,false,'New account was silently email-verified');
+ const blockedLeague=await req('/rest/v1/rpc/p4_dispatch','POST',{
+   p_actor:owner.id,p_action:'create_league',p_data:{name:'Unverified must fail',visibility:'private',time_zone:'Etc/UTC'}},priv());
+ assert.ok(blockedLeague.status>=400,'Unverified account created a league');
+ const blockedPromotion=await req('/rest/v1/rpc/set_league_moderator','POST',{
+   p_league_id:league1,p_member_user_id:member.id,p_is_moderator:true},pub(owner.token));
+ assert.ok(blockedPromotion.status>=400,'Unverified member was promoted');
+ const proofFixture=`begin;
+   insert into app_private.account_email_verifications(account_id,email,verified_at)
+     values ${users.map(u=>`('${u.id}'::uuid,'${u.email}',now())`).join(',')};
+   commit;`;
+ const proofSeed=spawnSync('docker',['exec','-i','supabase_db_'+project,'psql',
+   '-X','-q','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1'],
+   {input:proofFixture,encoding:'utf8',maxBuffer:1024*1024});
+ assert.equal(proofSeed.status,0,'Synthetic account verified-state fixture could not be created');
+ pass('new users default unverified; league creation and moderator promotion denied until independent proof');
+
  // Independent source-reference contract in disposable Postgres only. This is a
  // fabricated FIXTURE, not a claim about any real game's official puzzle identity.
  gateStage='identity_sql_url_contract';
@@ -157,7 +180,7 @@ async function main(){
  runInNewContext(stripTypeScriptTypes(injected),{
    Deno:{env:{get:(key)=>({SUPABASE_URL:cfg.base,SUPABASE_SERVICE_ROLE_KEY:cfg.service})[key]},
      serve:(h)=>{handler=h;}},
-   fetch:json,Response,Request,Headers,
+   fetch:json,Response,Request,Headers,crypto:globalThis.crypto,
    __identity:{evaluateEvidence:()=>({verified:false,reason:'not_involved_in_security_test'})},
    __parser:{parseShare:()=>{throw new Error('No scoring in auth tests');},previewPerformance:()=>null}
  },{filename:'competition/index.ts',timeout:5000});

@@ -8,10 +8,11 @@ fail(){ printf 'BLOCKED: %s\n' "$*" >&2; exit 2; }
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 cd "$ROOT"
 [[ -d .git ]] || fail 'Git working tree required'
-[[ "$(git branch --show-current)" == feat/polishing-integrated-20261023 ]] || fail 'Run only on polishing branch'
+[[ "$(git branch --show-current)" == feat/polishing-acceptance-20261024 ]] || fail 'Run only on polishing branch'
 [[ -f supabase/migrations/20261023100000_polishing_permissions_and_requests.sql ]] || fail 'Candidate permissions SQL missing'
 [[ -f supabase/migrations/20261023100100_polishing_verified_streak.sql ]] || fail 'Candidate streak SQL missing'
 [[ -f supabase/migrations/20261023100200_polishing_identity_evidence.sql ]] || fail 'Identity migration missing'
+[[ -f supabase/migrations/20261024170000_polishing_account_recovery_and_history.sql ]] || fail 'Account verification migration missing'
 [[ -f tests/polishing-edge-boundary.test.mjs ]] || fail 'Previous security gate must be installed'
 [[ -x node_modules/.bin/supabase ]] || fail 'Local Supabase CLI missing; use existing npm install'
 command -v docker >/dev/null || fail 'Docker missing'

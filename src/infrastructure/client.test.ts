@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { backendConfig, safeUrl, toSession } from './client';
+import { backendConfig, safeUrl, toSession, safeAuthError, signupPasswordValid } from './client';
 describe('Phase 5 public-only client security', () => {
   it('accepts local development and HTTPS but refuses untrusted HTTP and secret keys', () => {
     expect(backendConfig('http://127.0.0.1:54321', 'anon-public')?.url).toBe('http://127.0.0.1:54321');
@@ -41,9 +41,9 @@ describe('Phase 5 registration contract', () => {
       return new Response('{}', { status: 200 });
     };
     try {
-      const response = await api.authenticate('someone@example.org', 'safe-password', true, 'New Player');
+      const response = await api.authenticate('someone@example.org', 'BetterPassword1!', true, 'New Player');
       expect(response.session).toBeNull();
-      expect(response.message).toContain('first login');
+      expect(response.message).toContain('confirm your email');
       const signupRequest = requests.find(request => request.url.includes('/auth/v1/signup'));
       if (!signupRequest) throw new Error('Expected a signup request');
       const sent = JSON.parse(String(signupRequest.init.body)) as { data: { puzzle_league_nickname: string } };
@@ -96,5 +96,21 @@ describe('new account public username application', () => {
       await c.authenticate('someone@example.org', 'safe-password', false);
       expect(calls.some(url => url.includes('/functions/v1/competition'))).toBe(false);
     } finally { globalThis.fetch = original; }
+  });
+});
+
+describe('Polishing signup help and safe errors', () => {
+  it('makes the new-user password requirements explicit', () => {
+    expect(signupPasswordValid('TempPass1')).toBe(false);
+    expect(signupPasswordValid('BetterPassword1!')).toBe(true);
+    expect(signupPasswordValid('onlylowercase1!')).toBe(false);
+  });
+  it('translates known Auth codes without ever printing raw server errors', () => {
+    expect(safeAuthError(422,{code:'weak_password',message:'SENSITIVE'})).toContain('password');
+    expect(safeAuthError(500,{message:'SENSITIVE'})).not.toContain('SENSITIVE');
+    expect(safeAuthError(422,{code:'unknown',message:'SENSITIVE'})).not.toContain('SENSITIVE');
+    expect(safeAuthError(401,{code:'invalid_credentials'})).toBe('Email or password is incorrect.');
+    expect(safeAuthError(429,{code:'toString',message:'SENSITIVE'})).toBe('Too many requests. Please try again later.');
+    expect(safeAuthError(422,{code:'not_registered',message:'SENSITIVE'})).not.toContain('SENSITIVE');
   });
 });
