@@ -33,5 +33,8 @@ test('Phase 4 trusted server and all migration names are preserved', () => {
   const edge = read('supabase/functions/competition/index.ts');
   assert.match(edge, /p4_dispatch/);
   assert.match(edge, /'submit'/);
-  assert.equal(fs.readdirSync('supabase/migrations').filter(s=>s.endsWith('.sql')).length,9);
+  const migrations = fs.readdirSync('supabase/migrations').filter(s=>s.endsWith('.sql'));
+  assert.equal(migrations.filter(s=>s < '20261017190000').length,9); // original Phase 4 baseline
+  assert.equal(migrations.filter(s=>s < '20261023100000').length,13); // frozen hosted baseline
+  assert.equal(migrations.filter(s=>s >= '20261023100000').length,2); // new un-applied polishing candidate
 });

@@ -27,10 +27,14 @@ for (const [name, change] of [
 ]) test(`production gate rejects ${name}`, () => {
   assert.throws(() => validateProductionEnv({...base,...change}),/Release configuration invalid/u);
 });
-test('no changes to the thirteen immutable migrations', () => {
+test('the thirteen applied baseline migrations stay intact; candidate additions are explicit', () => {
   const rows = readdirSync(join(root,'supabase/migrations')).filter(x=>x.endsWith('.sql'));
-  assert.equal(rows.length,13);
+  assert.equal(rows.filter(x => x < '20261023100000').length,13);
   assert.ok(rows.includes('20261018150000_phase6_unlinked_polygonle_recovery.sql'));
+  assert.deepEqual(rows.filter(x => x >= '20261023100000').sort(), [
+    '20261023100000_polishing_permissions_and_requests.sql',
+    '20261023100100_polishing_verified_streak.sql',
+    '20261023100200_polishing_identity_evidence.sql']);
 });
 test('static headers protect SW, HTML and app shell', () => {
   const h=file('public/_headers');

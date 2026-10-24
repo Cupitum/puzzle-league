@@ -3,11 +3,14 @@ import { gameCatalog, type GameId } from '../domain/games/catalog';
 import { arrayOf, boardFrom, catalogueName, gameScores, safePreview, type Board, type History, type League, type Member, type PublicLeague, type Report, type Review, type Season } from '../domain/competition/view-model';
 import { client, SESSION_STORAGE_KEY, validPublicUsername, type Session } from '../infrastructure/client';
 import { publicConfig } from '../config/public-env';
+import { firstAccessibleLeague, initialSeason } from '../domain/competition/selection';
 import { consumeIncomingShare, registerPwa } from '../infrastructure/pwa';
 
-type Page = 'results' | 'home' | 'leagues' | 'league-detail' | 'season-setup' | 'submit' | 'rankings' | 'moderation' | 'account';
+type Page = 'results' | 'home' | 'find-leagues' | 'leagues' | 'league-detail' | 'season-setup' | 'submit' | 'rankings' | 'moderation' | 'account';
 type Notice = { message: string; error: boolean; scope: string } | null;
 type NativeHistory = { id: string; game: string | null; identity_key: string | null; puzzle_day: string | null; result_display: string | null; parse_status: string; review_status: string; submitted_at: string; awarded_leagues: number };
+type DeletionRow = { request_id: string; status: string; created_at: string; updated_at: string };
+type PendingEvidence = { request_id: string; submission_id: string; game: string | null; parse_status: string; identity_key: string | null; verification_state: string | null; verified_day: string | null; reviewer_independent: boolean; suggestion: string; evidence: string; reference_source_kind?: string | null; reference_digest?: string | null; original_sha256?: string };
 type DailyRow = { game: string; puzzle_id: string | null; identity_key: string | null; puzzle_day: string | null; eligible_leagues: number; status: 'unverified' | 'outstanding' | 'pending' | 'awarded' | 'submitted_unawarded'; points: number; streak: number | null; submission_id: string | null };
 function gameWebsite(game: string): string { const links: Record<string,string> = { wordle: 'https://www.nytimes.com/games/wordle/index.html', minute_cryptic: 'https://www.minutecryptic.com/', foximax: 'https://foximax.com/', polygonle: 'https://www.polygonle.com/', krillion: 'https://krillion.io/' }; return links[game] ?? 'https://www.nytimes.com/games/wordle/index.html'; }
 function InlineNotice({ notice }: { notice: Notice }) { return notice && <p className={`action-notice ${notice.error ? 'is-error' : ''}`} role={notice.error ? 'alert' : 'status'} aria-live={notice.error ? 'assertive' : 'polite'}>{notice.message}</p>; }
@@ -34,6 +37,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   const feedbackScope = useRef('home');
+  const [rankingsChoiceMade, setRankingsChoiceMade] = useState(false);
   const [daily, setDaily] = useState<DailyRow[]>([]);
   const [dailyLoading, setDailyLoading] = useState(false);
   const [dailyError, setDailyError] = useState('');
@@ -81,16 +85,25 @@ function App() {
   const [reportReason, setReportReason] = useState('');
   const [reportSubject, setReportSubject] = useState('');
   const [members, setMembers] = useState<Member[]>([]);
+  const [pendingEvidence, setPendingEvidence] = useState<PendingEvidence[]>([]);
+  const [showRecoveryHelp, setShowRecoveryHelp] = useState(false);
+  const [deletionRequests, setDeletionRequests] = useState<DeletionRow[]>([]);
+  const [deletionPassword, setDeletionPassword] = useState('');
+  const [deletionAcknowledged, setDeletionAcknowledged] = useState(false);
   const [memberId, setMemberId] = useState('');
   const [moderationReason, setModerationReason] = useState('');
   const [requestId, setRequestId] = useState('');
   const [correctionText, setCorrectionText] = useState('');
   const [correctionReason, setCorrectionReason] = useState('');
   const selected = leagues.find(l => l.league_id === leagueId) ?? null;
+  const myMembership = members.find(m => m.user_id === client?.userId && m.role === 'moderator');
+  const canInvite = Boolean(selected?.is_owner || myMembership?.permissions.includes('manage_invitations'));
+  const canManageMembers = Boolean(selected?.is_owner || myMembership?.permissions.includes('manage_members'));
+  const chosenMember = members.find(m => m.user_id === memberId);
   const selectedSeason = seasons.find(s => s.season_id === seasonId) ?? null;
   const preview = safePreview(rawText);
 
-  const flash = useCallback((message: string, error = false) => setNotice({ message, error, scope: feedbackScope.current }), []);
+  const flash = useCallback((message: string, error = false, scope = feedbackScope.current) => setNotice({ message, error, scope }), []);
   const refreshDaily = useCallback(async () => {
     if (!client?.currentSession) { setDaily([]); return; }
     setDailyLoading(true); setDailyError('');
@@ -102,9 +115,10 @@ function App() {
   // Page transitions always begin at the top, particularly on a small phone.
   useEffect(() => { window.scrollTo(0, 0); }, [page]);
   const run = useCallback(async (task: () => Promise<void>) => {
+    const actionScope = feedbackScope.current;
     setBusy(true); setNotice(null);
     try { await task(); }
-    catch (error) { flash(error instanceof Error ? error.message : 'This action could not be confirmed.', true); }
+    catch (error) { flash(error instanceof Error ? error.message : 'This action could not be confirmed.', true, actionScope); }
     finally { setBusy(false); }
   }, [flash]);
   const loadPublic = useCallback(async () => {
@@ -125,7 +139,8 @@ function App() {
       client.call('my_leagues'), client.call('my_history'),
       client.select<{ nickname: string }>('profiles', `select=nickname&id=eq.${encodeURIComponent(client.userId ?? '')}`),
     ]);
-    setLeagues(arrayOf<League>(leagueData));
+    const accessible = arrayOf<League>(leagueData).sort((a,b) => a.name.toLocaleLowerCase().localeCompare(b.name.toLocaleLowerCase()) || a.league_id.localeCompare(b.league_id));
+    setLeagues(accessible);
     setHistory(arrayOf<History>(historyData));
     void refreshDaily();
     void loadNativeHistory();
@@ -135,11 +150,11 @@ function App() {
     if (!client?.currentSession || !id) return;
     const data = arrayOf<Season>(await client.call('season_list', { league_id: id }));
     setSeasons(data);
-    setSeasonId(data.at(-1)?.season_id ?? '');
+    setSeasonId(initialSeason(data, Date.now()) ?? '');
     // Never carry another league's draft selection into this owner's settings.
     const latestGames = data.at(-1)?.games?.map(g => g.game);
     setGames(latestGames?.length ? latestGames : gameCatalog.map(g => g.id));
-    setReviews([]); setReports([]); setMembers([]);
+    setReviews([]); setReports([]); setMembers([]); setPendingEvidence([]); setInvite(''); setInviteExpiry('');
     if (focusFirstSeason) {
       // The league already exists: only its owner can initialise a season.
       setPage(data.length === 0 && leagues.some(l => l.league_id === id && l.is_owner)
@@ -254,13 +269,15 @@ function App() {
       document.removeEventListener('visibilitychange', visible);
     };
   }, [loadCore]);
+  useEffect(() => { if (page === 'rankings' && !rankingsChoiceMade && !leagueId && leagues.length) { const id = firstAccessibleLeague(leagues); if (id) { setLeagueId(id); void loadLeague(id); } } }, [page, rankingsChoiceMade, leagueId, leagues, loadLeague]);
   useEffect(() => { if (seasonId) void loadBoard(seasonId).catch(() => setBoard({ combined: [], by_game: [], streaks: [] })); }, [seasonId, loadBoard]);
   async function act(action: string, data: Record<string, unknown>, success: string, update?: () => Promise<void>) {
     const api = client; if (!api) return;
+    const actionScope=feedbackScope.current;
     await run(async () => {
       await api.call(action, data);
       if (update) await update();
-      flash(success);
+      flash(success,false,actionScope);
     });
   }
   async function openLeague(id: string) {
@@ -325,8 +342,32 @@ function App() {
   async function loadRoster() {
     const api = client; if (!api || !leagueId) return;
     await run(async () => {
-      const rows = await api.select<Member>('league_memberships', `select=id,user_id,role,joined_at&league_id=eq.${encodeURIComponent(leagueId)}&left_at=is.null&order=joined_at.asc`);
-      setMembers(rows); flash('Membership records visible under your RLS permissions have loaded.');
+      const rows = arrayOf<Member>(await api.call('roster', { league_id: leagueId }));
+      setMembers(rows); flash('League-scoped roster and effective access loaded.');
+    });
+  }
+  // Refresh capability projection on the selected league dashboard; errors are denied
+  // by the server, never converted into claims of moderator privileges.
+  useEffect(() => {
+    if (!session || !leagueId || page !== 'league-detail' || !client) return;
+    let active=true;
+    void client.call('roster', { league_id: leagueId })
+      .then(r => { if(active) setMembers(arrayOf<Member>(r)); })
+      .catch(() => { if(active) setMembers([]); });
+    return () => { active=false; };
+  }, [leagueId, page, session]);
+  const refreshDeletion = useCallback(async () => {
+    if (!client?.currentSession) return;
+    setDeletionRequests(arrayOf<DeletionRow>(await client.call('deletion_status')));
+  }, []);
+  useEffect(() => {
+    if (page==='account' && session) void refreshDeletion().catch(() => {});
+  }, [page, session, refreshDeletion]);
+  async function loadPendingEvidence() {
+    if (!client || !leagueId) return;
+    await run(async () => {
+      setPendingEvidence(arrayOf<PendingEvidence>(await client!.call('pending_sources',{league_id:leagueId})));
+      flash('Read-only reviewer evidence loaded. No historical points changed.');
     });
   }
   async function reviewAction(id: string, decision: 'approved' | 'rejected') {
@@ -336,7 +377,7 @@ function App() {
   }
   const auth = Boolean(session);
   const navigation: { id: Page; label: string }[] = [
-    { id: 'home', label: 'Overview' }, { id: 'results', label: 'My Results' }, { id: 'leagues', label: 'Leagues' }, { id: 'submit', label: 'Submit' },
+    { id: 'home', label: 'Overview' }, { id: 'results', label: 'My Results' }, { id: 'find-leagues', label: 'Find Leagues' }, { id: 'leagues', label: 'My Leagues' }, { id: 'submit', label: 'Submit' },
     { id: 'rankings', label: 'Rankings' }, { id: 'moderation', label: 'Moderation' }, { id: 'account', label: 'Account' },
   ];
   return <div className="shell">
@@ -348,19 +389,20 @@ function App() {
         {!client && <Section notice={notice} title="Connect the local competition backend"><p>This build has no public backend settings. On Ubuntu open the project directory and run <code>python3 scripts/phase5/configure_local_env.py</code> to create the ignored <code>.env.local</code> file from the public local Supabase key. Then restart Vite and reload the app. Never place secret-role keys in the browser.</p></Section>}
         {booting ? <p role="status">Restoring your session and checking shared results…</p> : <>
           {page === 'home' && <>
-            <div className="hero"><span className="overline">YOUR DAILY PUZZLE CLUB</span><h1>A little puzzle. A whole lot of competition.</h1><p>Share a result from the original game, compare your league standings, and keep your streaks separate from championship points.</p><div className="actions"><Button onClick={() => setPage('submit')}>Share a result</Button><Button secondary onClick={() => setPage('leagues')}>Explore leagues</Button></div></div>
+            <div className="hero hero-compact"><span className="overline">YOUR DAILY PUZZLE CLUB</span><h1>A little puzzle. A whole lot of competition.</h1><p>Share a result from the original game, compare your league standings, and keep your streaks separate from championship points.</p><div className="actions"><Button onClick={() => setPage('submit')}>Share a result</Button><Button secondary onClick={() => setPage('find-leagues')}>Find leagues</Button></div></div>
             <Section notice={notice} title="Your competition at a glance" extra={<span className="tag">Five pilot games</span>}>
               <div className="stat-grid"><div><strong>{leagues.length}</strong><span>My leagues</span></div><div><strong>{history.length}</strong><span>Recent results</span></div><div><strong>{seasons.length}</strong><span>Selected league seasons</span></div></div>
               {!auth && <Empty>Explore public leagues below. Sign in to join, submit and manage your profile.</Empty>}
             </Section>
             {auth && <Section notice={notice} title="Today's puzzles across your leagues" extra={<Button secondary disabled={dailyLoading} onClick={() => void refreshDaily()}>Refresh</Button>}>
               <p className="muted">Your actual shared puzzle results are shown separately from league championship points. Unknown puzzle dates do not prove a submission was for today.</p>
-              {dailyLoading ? <p role="status">Checking today's puzzles…</p> : dailyError ? <p role="alert">{dailyError}</p> : daily.length === 0 ? <Empty>No eligible active-season games found for today.</Empty> : <div className="daily-scroll"><table className="daily-table"><thead><tr><th>Game / puzzle</th><th>Result</th><th>Status</th><th>Streak</th><th>Leagues</th><th>Play</th></tr></thead><tbody>{daily.map((r,i) => {
+              {dailyLoading ? <p role="status">Checking today's puzzles…</p> : dailyError ? <p role="alert">{dailyError}</p> : daily.length === 0 ? <Empty>No eligible active-season games found for today.</Empty> : <div className="daily-cards">{daily.map((r,i) => {
                 const matching = nativeHistory.find(h => h.game === r.game && r.puzzle_day && h.puzzle_day === r.puzzle_day);
-                const recentUnverified = !r.puzzle_id ? nativeHistory.find(h => h.game === r.game && !h.puzzle_day) : null;
-                const shown = matching ?? recentUnverified;
-                return <tr key={`${r.game}:${r.puzzle_id ?? 'unknown'}:${i}`}><td>{catalogueName(r.game)}{r.identity_key ? ` #${r.identity_key}` : ''}</td><td>{shown?.result_display ?? (r.status === 'outstanding' ? 'Outstanding' : '—')}{recentUnverified && <small className="muted">Previous submission · date unverified</small>}</td><td>{shown ? (shown.review_status === 'pending' ? 'Pending review' : shown.review_status === 'accepted' ? 'Accepted' : 'Rejected') : r.status === 'unverified' ? 'Daily identity unverified' : r.status === 'outstanding' ? 'Not submitted' : r.status === 'awarded' ? 'Awarded' : 'Awaiting verification'}</td><td>{r.streak ?? '—'}</td><td>{r.eligible_leagues}</td><td><a className="button secondary" href={gameWebsite(r.game)} target="_blank" rel="noopener noreferrer">Play ↗</a></td></tr>;
-              })}</tbody></table></div>}
+                const unverified = !r.puzzle_id ? nativeHistory.find(h => h.game === r.game && !h.puzzle_day) : null;
+                const shown = matching ?? unverified;
+                const status = shown ? (shown.review_status === 'pending' ? 'Pending review' : shown.review_status === 'accepted' ? 'Accepted' : 'Rejected') : r.status === 'unverified' ? 'Identity unverified' : r.status === 'outstanding' ? 'Outstanding' : r.status === 'awarded' ? 'Awarded' : 'Awaiting verification';
+                return <article className="daily-game-card" key={`${r.game}:${r.puzzle_id ?? 'unknown'}:${i}`}><div className="daily-card-heading"><h3>{catalogueName(r.game)}</h3><strong>{status}</strong></div><p className="daily-result">{shown?.result_display ?? (r.status === 'outstanding' ? 'Not submitted' : 'Result unavailable')}</p><p className="muted">Verified awarded-day streak: {r.streak === null ? 'Unavailable (not verified)' : `${r.streak} days`}</p><div className="actions"><a className="button secondary" href={gameWebsite(r.game)} target="_blank" rel="noopener noreferrer">Play game ↗</a><Button secondary onClick={() => setPage('submit')}>Share Result</Button></div><details><summary>Details, identity & eligibility</summary><p>{r.identity_key && r.puzzle_day ? `Server puzzle #${r.identity_key} · ${r.puzzle_day}` : 'Official daily identity/date not verified. No identifier is inferred.'}</p><p>{r.eligible_leagues} eligible active-league entries. {unverified ? 'Previous undated submission cannot prove today’s puzzle.' : 'Check My Results or the review queue for decisions.'}</p></details></article>;
+              })}</div>}
               <div className="actions"><Button secondary onClick={() => { setPage('results'); void loadNativeHistory(); }}>View past results</Button></div>
             </Section>}
             <Section notice={notice} title="Supported puzzles"><div className="game-grid">{gameCatalog.map(g => <div className="game-tile" key={g.id}><strong>{g.label}</strong><small>Approved rule · Season-specific</small></div>)}</div><p className="muted">No app-side scores are calculated. Only the trusted backend can accept an entry or award points; unknown official puzzle dates and modes require review.</p></Section>
@@ -368,6 +410,7 @@ function App() {
           </>}
           {page === 'results' && <>
             <div className="page-heading"><span className="overline">PERSONAL PUZZLE JOURNAL</span><h1>My Results</h1><p>Original results, not league points. Review status and source puzzle dates are kept separate.</p></div>
+            {auth && <Section title="Today's Results" notice={notice}><p className="muted">This summary uses the same server-provided daily status as Home. Unverified streaks remain unavailable.</p><div className="today-summary">{daily.map((r,i) => { const result = nativeHistory.find(h => h.game === r.game && r.puzzle_day && h.puzzle_day === r.puzzle_day); return <div className="today-item" key={`${r.game}-${i}`}><strong>{catalogueName(r.game)}</strong><span>{result?.result_display ?? (r.status === 'outstanding' ? 'Outstanding' : 'Identity or result unverified')}</span><small>Verified awarded-day streak: {r.streak === null ? 'Unavailable' : `${r.streak} days`}</small></div>; })}</div>{!daily.length && <Empty>No verified daily games available.</Empty>}</Section>}
             <Section title="Past submissions" notice={notice} extra={<Button secondary disabled={historyLoading} onClick={() => void loadNativeHistory()}>Refresh</Button>}>
               <label>Filter by game<select value={historyGame} onChange={e => setHistoryGame(e.target.value)}><option value="all">All games</option>{gameCatalog.map(g => <option key={g.id} value={g.id}>{g.label}</option>)}</select></label>
               {historyLoading && <p role="status">Loading history…</p>}{historyError && <p role="alert">{historyError}</p>}
@@ -390,8 +433,12 @@ function App() {
                 {signup && confirmPassword && confirmPassword !== password && <p className="form-warning" role="alert">Passwords do not match.</p>}
                 <Button disabled={busy || !client || (signup && (password !== confirmPassword || !validPublicUsername(signupUsername.trim())))} type="submit">{signup ? 'Create account' : 'Sign in'}</Button>
                 <button type="button" className="text-button" onClick={() => { setSignup(!signup); setConfirmPassword(''); setPassword(''); setShowPassword(false); }}>{signup ? 'Already a member? Sign in' : 'New here? Create account'}</button>
+                {!signup && <button type="button" className="text-button" aria-expanded={showRecoveryHelp} onClick={() => setShowRecoveryHelp(v=>!v)}>Forgot password? Recovery status</button>}
+                {showRecoveryHelp && <p role="status" className="form-warning">Verified emailed-code recovery is not enabled for this pilot. Secure external delivery and code verification have not passed; contact the trusted platform administrator using your established support channel. Do not send your password or codes to a league owner or moderator.</p>}
               </form></Section> : <>
               <Section notice={notice} title="Player profile"><p className="muted">Signed in as {session?.user.email ?? 'authenticated account'}. Your private email is never shown on leaderboards.</p><form className="stack" onSubmit={e => { e.preventDefault(); void act('update_profile', { nickname: nickname.trim() }, 'Nickname updated.'); }}><label>Public nickname <input maxLength={40} required value={nickname} onChange={e => setNickname(e.target.value)} /></label><Button type="submit" disabled={busy || !nickname.trim()}>Save nickname</Button></form></Section>
+              <Section notice={notice} title="Password recovery"><p className="muted">In-app emailed-code recovery is not enabled: external delivery, replay protection and secure code verification have not yet been demonstrated. Please do not share passwords or reset codes with a league moderator.</p></Section>
+              <Section notice={notice} title="Request account deletion"><p className="muted">A verified request is recorded for manual review by trusted platform administrators. It does NOT immediately delete your account, submissions or awards. Existing owned leagues, retention duties and legal obligations must be resolved before any irreversible action.</p><label>Current account password (fresh verification required)<input type="password" autoComplete="current-password" value={deletionPassword} onChange={e=>setDeletionPassword(e.target.value)} /></label><label className="check"><input type="checkbox" checked={deletionAcknowledged} onChange={e=>setDeletionAcknowledged(e.target.checked)} />I understand deletion is not immediate and may be irreversible after manual processing.</label><Button danger disabled={busy || !deletionAcknowledged || deletionPassword.length<6 || deletionRequests.some(r=>['identity_verified','under_review','awaiting_owner_resolution'].includes(r.status))} onClick={() => {if(!window.confirm('Submit a verified request for manual account deletion review?')) return; void run(async()=>{const pwd=deletionPassword;setDeletionPassword('');await client?.call('request_deletion',{current_password:pwd});await refreshDeletion();flash('Request recorded for manual platform-admin review. Your account remains active.');});}}>Request manual deletion review</Button>{deletionRequests.map(r=><p key={r.request_id} className="muted">Request {r.request_id} · {r.status.replaceAll('_',' ')} · {dateText(r.created_at)}</p>)}<Button secondary disabled={busy} onClick={()=>void run(async()=>{await refreshDeletion();flash('Request status refreshed.');})}>Refresh request status</Button></Section>
               <Section notice={notice} title="Session"><p className="muted">Your account stays signed in across pages, app restarts and Android Share launches on this device. Use Sign out on a shared device; never use a public computer for a persistent session.</p><Button danger onClick={() => void run(async () => { await client?.signOut(); setSession(null); setLeagues([]); setHistory([]); setLeagueId(''); setSeasons([]); setBoard({ combined: [], by_game: [], streaks: [] }); setReviews([]); setReports([]); setRawText(''); setInvite(''); flash('Signed out locally.'); })}>Sign out</Button></Section>
             </>}
           </>}
@@ -430,12 +477,15 @@ function App() {
                 </Section>
               </>}
           </>}
-          {page === 'leagues' && <>
-            <div className="page-heading"><span className="overline">PLAY TOGETHER</span><h1>Leagues & seasons</h1><p>Join a public league or use a private invitation. Your participation begins when you join, not retroactively.</p></div>
+          {page === 'find-leagues' && <>
+            <div className="page-heading"><span className="overline">PLAY TOGETHER</span><h1>Find Leagues</h1><p>Join a public league or use a private invitation. Your participation begins when you join, not retroactively.</p></div>
             <Section notice={notice} title="Discover public leagues" extra={<Button secondary onClick={() => void loadPublic()}>Refresh</Button>}>
               {publicLeagues.length ? <div className="item-list">{publicLeagues.map(l => <div className="item" key={l.id}><div><strong>{l.name}</strong><small>Public · {l.time_zone}</small></div><Button disabled={!auth || busy} secondary onClick={() => void act('join', { league_id: l.id }, 'Join request accepted by the server.', loadCore)}>Join</Button></div>)}</div> : <Empty>No publicly listed leagues are available from this backend.</Empty>}
               {!auth && <p className="muted">Sign in to join. Guests can view public standings only when given a season ID.</p>}
             </Section>
+            </>}
+          {page === 'leagues' && <>
+            <div className="page-heading"><span className="overline">YOUR COMMUNITIES</span><h1>My Leagues</h1><p>Select a league or create one. To join a public league, use Find Leagues.</p></div>
             {auth && <>
               <Section notice={notice} title="My leagues" extra={<Button secondary onClick={() => void run(loadCore)}>Refresh</Button>}>
                 {leagues.length ? <div className="item-list">{leagues.map(l => <div className="item" key={l.league_id}><div><strong>{l.name}</strong><small>{l.visibility} · {l.time_zone} · {l.is_owner ? 'Owner' : 'Member'}</small></div><Button secondary onClick={() => void openLeague(l.league_id)}>Open</Button></div>)}</div> : <Empty>Create a league or join one to begin.</Empty>}
@@ -448,22 +498,24 @@ function App() {
           {page === 'league-detail' && <div className="page-heading">
             <span className="overline">LEAGUE MANAGEMENT</span>
             <h1>{selected?.name ?? 'Your league'}</h1>
-            <p>View seasons, standings, member invitations and owner settings.</p>
+            <p>Members, reviews and invitations are the main management tasks. Advanced options follow below.</p>
             <div className="actions"><Button secondary onClick={() => setPage('leagues')}>Back to all leagues</Button></div>
           </div>}
               {page === 'league-detail' && selected && <>
                 {selected.is_owner && !seasons.length && <p className="notice" role="status">You own this league. Choose its first-season games on the dedicated setup screen. League creation alone does not begin scoring.</p>}
                 <Section notice={notice} title={selected.name} extra={<span className="tag">{selected.is_owner ? 'Owner' : 'Member'}</span>}>
                   <p className="muted">{selected.visibility} · {selected.time_zone}</p>
-                  <div className="actions"><Button onClick={() => setPage('rankings')}>View rankings</Button><Button secondary onClick={() => setPage('moderation')}>Review & safety</Button>{!selected.is_owner && <Button danger disabled={busy} onClick={() => { if (window.confirm('Leave this league? You will no longer score new puzzles here.')) void act('leave', { league_id: leagueId }, 'Left league.', async () => { setLeagueId(''); setSeasons([]); setPage('leagues'); await loadCore(); }); }}>Leave league</Button>}</div>
+                  <div className="actions"><Button onClick={() => { setPage('moderation'); void loadRoster(); }}>Members</Button><Button secondary onClick={() => { setPage('moderation'); void fetchReview(); }}>Review Queue</Button><Button secondary disabled={!canInvite} onClick={() => document.getElementById('league-invitations')?.scrollIntoView({behavior:'smooth'})}>Invitations</Button><Button secondary onClick={() => setPage('rankings')}>View rankings</Button>{!selected.is_owner && <Button danger disabled={busy} onClick={() => { if (window.confirm('Leave this league? You will no longer score new puzzles here.')) void act('leave', { league_id: leagueId }, 'Left league.', async () => { setLeagueId(''); setSeasons([]); setPage('leagues'); await loadCore(); }); }}>Leave league</Button>}</div>
                 </Section>
-                <Section notice={notice} title="Seasons" extra={<Button secondary onClick={() => void run(() => loadLeague(leagueId))}>Refresh</Button>}>
+                {canInvite && <div id="league-invitations"><Section notice={notice} title="Private invitations"><Button disabled={busy} onClick={() => { const api = client; if (!api) return; void run(async () => { const r = await api.call('create_invitation', { league_id: leagueId }) as { invite_token: string; expires_at: string }; setInvite(r.invite_token); setInviteExpiry(r.expires_at); flash('Single-use invitation created.'); }); }}>Create invitation</Button>{invite && <div className="invite"><label>Private invitation token <input readOnly value={invite} onFocus={(e: { currentTarget: HTMLInputElement }) => e.currentTarget.select()} /></label><small>Expires {dateText(inviteExpiry)}. Share privately; only one account can redeem it.</small><div className="actions"><Button secondary onClick={() => void navigator.clipboard?.writeText(`${window.location.origin}/?invite=${encodeURIComponent(invite)}`).then(() => flash('Invitation link copied.')).catch(() => flash('Clipboard unavailable; copy the token manually.', true))}>Copy invitation link</Button><Button danger onClick={() => void act('revoke_invitation', { league_id: leagueId, invite_token: invite }, 'Invitation revoked.', async () => { setInvite(''); setInviteExpiry(''); })}>Revoke</Button></div></div>}</Section></div>}
+
+                <details className="advanced-panel"><summary>Seasons & advanced league management</summary><Section notice={notice} title="Seasons" extra={<Button secondary onClick={() => void run(() => loadLeague(leagueId))}>Refresh</Button>}>
                   {seasons.length ? <div className="item-list">{seasons.map(s => <div className="item" key={s.season_id}><div><strong>Season {s.sequence_no} · {s.state}</strong><small>{dateText(s.starts_at)} – {dateText(s.ends_at)}</small><small>{s.games?.map(g => catalogueName(g.game)).join(' · ') || 'No selected games'}</small></div><div className="actions"><Button secondary onClick={() => { setSeasonId(s.season_id); setPage('rankings'); }}>Standings</Button>{selected.visibility === 'public' && <Button secondary onClick={() => { const link = `${window.location.origin}/?season=${encodeURIComponent(s.season_id)}`; void navigator.clipboard?.writeText(link).then(() => flash('Public season link copied.')).catch(() => flash('Copy failed; use the season ID.', true)); }}>Share public standings</Button>}</div></div>)}</div> : <Empty>No season started for this league yet.</Empty>}
                 </Section>
+                </details>
                 {selected.is_owner && <>
                   {!seasons.length && <Section notice={notice} title="First season not yet configured"><p className="muted">Only the league owner can select games and start the first season.</p><Button onClick={() => setPage('season-setup')}>Set up first season</Button></Section>}
-                  {seasons.length > 0 && <Section notice={notice} title="Schedule a future season change"><p className="muted">The checkboxes initially reflect the latest season. Changes take effect at the next season only. Existing season rules and scores are frozen.</p><GameChecks selection={games} setSelection={setGames} /><Button disabled={busy || games.length === 0} onClick={() => void act('schedule_games', { league_id: leagueId, games }, 'Changes scheduled for a future season.')}>Schedule selected games</Button></Section>}
-                  <Section notice={notice} title="Private invitations"><Button disabled={busy} onClick={() => { const api = client; if (!api) return; void run(async () => { const r = await api.call('invite', { league_id: leagueId }) as { invite_token: string; expires_at: string }; setInvite(r.invite_token); setInviteExpiry(r.expires_at); flash('Single-use invitation created.'); }); }}>Create invitation</Button>{invite && <div className="invite"><label>Private invitation token <input readOnly value={invite} onFocus={(e: { currentTarget: HTMLInputElement }) => e.currentTarget.select()} /></label><small>Expires {dateText(inviteExpiry)}. Share privately; only one account can redeem it.</small><div className="actions"><Button secondary onClick={() => void navigator.clipboard?.writeText(`${window.location.origin}/?invite=${encodeURIComponent(invite)}`).then(() => flash('Invitation link copied.')).catch(() => flash('Clipboard unavailable; copy the token manually.', true))}>Copy invitation link</Button><Button danger onClick={() => void act('invite_revoke', { league_id: leagueId, invite_token: invite }, 'Invitation revoked.', async () => { setInvite(''); setInviteExpiry(''); })}>Revoke</Button></div></div>}</Section>
+                  {seasons.length > 0 && <details className="advanced-panel"><summary>Schedule future-season changes</summary><Section notice={notice} title="Schedule a future season change"><p className="muted">The checkboxes initially reflect the latest season. Changes take effect at the next season only. Existing season rules and scores are frozen.</p><GameChecks selection={games} setSelection={setGames} /><Button disabled={busy || games.length === 0} onClick={() => void act('schedule_games', { league_id: leagueId, games }, 'Changes scheduled for a future season.')}>Schedule selected games</Button></Section></details>}
                 </>}
               </>}
           {page === 'submit' && <>
@@ -475,7 +527,7 @@ function App() {
           </>}
           {page === 'rankings' && <>
             <div className="page-heading"><span className="overline">LEAGUE LEADERBOARDS</span><h1>Standings & streaks</h1><p>Combined points are a sum of eligible games. Streaks are separate and never add championship points.</p></div>
-            <Section notice={notice} title="Choose a league & season"><div className="two"><label>My league<select value={leagueId} onChange={e => { const id = e.target.value; setLeagueId(id); setSeasonId(''); void run(() => loadLeague(id)); }}><option value="">Choose a league</option>{leagues.map(l => <option key={l.league_id} value={l.league_id}>{l.name}</option>)}</select></label><label>Season<select value={seasonId} onChange={e => setSeasonId(e.target.value)}><option value="">Choose a season</option>{seasons.map(s => <option value={s.season_id} key={s.season_id}>#{s.sequence_no} · {s.state}</option>)}</select></label></div><div className="actions"><Button secondary disabled={!seasonId || busy} onClick={() => void run(() => loadBoard(seasonId))}>Refresh standings</Button></div>
+            <Section notice={notice} title="Choose a league & season"><div className="two"><label>My league<select value={leagueId} onChange={e => { const id = e.target.value; setRankingsChoiceMade(true); setLeagueId(id); setSeasonId(''); void run(() => loadLeague(id)); }}><option value="">Choose a league</option>{leagues.map(l => <option key={l.league_id} value={l.league_id}>{l.name}</option>)}</select></label><label>Season<select value={seasonId} onChange={e => { setRankingsChoiceMade(true); setSeasonId(e.target.value); }}><option value="">Choose a season</option>{seasons.map(s => <option value={s.season_id} key={s.season_id}>#{s.sequence_no} · {s.state}</option>)}</select></label></div><div className="actions"><Button secondary disabled={!seasonId || busy} onClick={() => void run(() => loadBoard(seasonId))}>Refresh standings</Button></div>
               {!auth && <p className="muted">Guests can open a public season by its UUID. Private season standings are protected by the server.</p>}
               {!auth && <label>Public season ID<input value={seasonId} onChange={e => setSeasonId(e.target.value)} placeholder="Season UUID" /></label>}
               {selectedSeason && <p className="muted">{dateText(selectedSeason.starts_at)} – {dateText(selectedSeason.ends_at)} · {selectedSeason.state}</p>}
@@ -485,7 +537,7 @@ function App() {
           </>}
           {page === 'moderation' && <>
             <div className="page-heading"><span className="overline">TRUSTED COMPETITION</span><h1>Reviews & community safety</h1><p>Only authorised owners or explicitly delegated moderators can review requests. The backend requires independent decisions and verified daily puzzle identity before approval.</p></div>
-            <Section notice={notice} title="Select a league"><label>League<select value={leagueId} onChange={e => { setLeagueId(e.target.value); setReviews([]); setReports([]); setMembers([]); }}><option value="">Select a league</option>{leagues.map(l => <option key={l.league_id} value={l.league_id}>{l.name}</option>)}</select></label><div className="actions"><Button secondary disabled={!leagueId || busy} onClick={() => void fetchReview()}>Load authorised queues</Button><Button secondary disabled={!leagueId || busy} onClick={() => void loadRoster()}>Load visible members</Button></div></Section>
+            <Section notice={notice} title="Select a league"><label>League<select value={leagueId} onChange={e => { setLeagueId(e.target.value); setReviews([]); setReports([]); setMembers([]); setPendingEvidence([]); setMemberId(''); }}><option value="">Select a league</option>{leagues.map(l => <option key={l.league_id} value={l.league_id}>{l.name}</option>)}</select></label><div className="actions"><Button secondary disabled={!leagueId || busy} onClick={() => void fetchReview()}>Load authorised queues</Button><Button secondary disabled={!leagueId || busy} onClick={() => void loadRoster()}>Load visible members</Button></div></Section>
             {auth && <>
               <Section notice={notice} title="Request an historical exception or score correction"><p className="muted">You can request a league-specific historical exception for your own submission. A correction requires an already-awarded entry and the same game/puzzle identity.</p><div className="stack"><label>Submission ID<select value={requestId} onChange={e => setRequestId(e.target.value)}><option value="">Choose your result</option>{history.map(h => <option value={h.id} key={h.id}>{catalogueName(h.game)} · {dateText(h.submitted_at)} · {h.review_status}</option>)}</select></label><label>Reason<input value={correctionReason} onChange={e => setCorrectionReason(e.target.value)} maxLength={2000} placeholder="Explain the request" /></label><div className="actions"><Button disabled={!leagueId || !UUID.test(requestId) || busy} onClick={() => void act('request_historical', { submission_id: requestId, league_id: leagueId, rationale: correctionReason.trim() }, 'Historical exception requested; independent review required.')}>Request historical exception</Button></div><label>Replacement original share (for correction only)<textarea value={correctionText} onChange={e => setCorrectionText(e.target.value)} rows={5} maxLength={16000} placeholder="Paste the corrected complete game share" /></label><Button secondary disabled={!leagueId || !UUID.test(requestId) || !correctionText.trim() || busy} onClick={() => void act('request_correction', { submission_id: requestId, league_id: leagueId, rationale: correctionReason.trim(), replacement_raw_text: correctionText }, 'Correction request submitted; no scores changed until independent approval.')}>Request score correction</Button></div></Section>
               <Section notice={notice} title="Report a member"><p className="muted">Use a valid account UUID if you know it; otherwise file a general report for this league. Report reasons are private to authorised reviewers.</p><div className="stack"><label>Subject user UUID (optional)<input value={reportSubject} onChange={e => setReportSubject(e.target.value)} /></label><label>Reason<textarea rows={3} value={reportReason} onChange={e => setReportReason(e.target.value)} maxLength={2000} required /></label><Button disabled={!leagueId || reportReason.trim().length < 3 || (reportSubject.trim() !== '' && !UUID.test(reportSubject.trim())) || busy} onClick={() => void act('report', { league_id: leagueId, reason: reportReason.trim(), ...(reportSubject.trim() ? { subject_user_id: reportSubject.trim() } : {}) }, 'Report filed privately.', async () => { setReportReason(''); setReportSubject(''); })}>File report</Button></div></Section>
@@ -494,15 +546,17 @@ function App() {
                 {reviews.length ? reviews.map(r => <article key={r.request_id} className="review"><strong>{r.kind} · {catalogueName(r.game)}</strong><small>{dateText(r.submitted_at)} · {r.parse_status} · {r.review_status}</small><p>Request: {r.rationale}</p><details><summary>View submitted text</summary><pre>{r.raw_text}</pre>{r.correction_proposed_text && <><p>Proposed corrected text:</p><pre>{r.correction_proposed_text}</pre></>}</details><div className="actions"><Button disabled={busy || reviewRationale.trim().length < 3} onClick={() => void reviewAction(r.request_id, 'approved')}>Approve (server verifies)</Button><Button secondary disabled={busy || reviewRationale.trim().length < 3} onClick={() => void reviewAction(r.request_id, 'rejected')}>Reject</Button></div>{notice?.scope === 'review:' + r.request_id && <InlineNotice notice={notice} />}</article>) : <Empty>No requests loaded or none pending. Queue access is enforced server-side.</Empty>}
               </Section>
               <Section notice={notice} title={`Reports requiring action (${reports.length})`}>{reports.length ? reports.map(r => <div className="item" key={r.report_id}><div><strong>{r.reason}</strong><small>{dateText(r.created_at)} · Subject: {r.subject_user_id ? `${r.subject_user_id.slice(0, 8)}…` : 'General'}</small></div><Button disabled={busy} secondary onClick={() => void act('resolve_report', { league_id: leagueId, report_id: r.report_id }, 'Report resolved.', fetchReview)}>Resolve</Button></div>) : <Empty>No reports loaded or none pending.</Empty>}</Section>
-              <Section notice={notice} title="Roster & delegated permissions"><p className="muted">Roster visibility is restricted by database policies. Only owners can change moderator, suspension or removal status; a moderator role alone does not grant review authority.</p>{members.length ? <div className="item-list">{members.map(m => <div className="item" key={m.id}><div><strong>{m.role}</strong><small>Account {m.user_id.slice(0, 8)}… · joined {dateText(m.joined_at)}</small></div><Button secondary onClick={() => setMemberId(m.user_id)}>Manage</Button></div>)}</div> : <Empty>No roster loaded. Members without roster privileges may only see their own membership.</Empty>}
-                {isOwner(selected) && <div className="stack admin"><label>Selected member UUID<input value={memberId} onChange={e => setMemberId(e.target.value)} placeholder="Choose from roster" /></label><label>Reason for suspension (minimum 3 characters)<input value={moderationReason} onChange={e => setModerationReason(e.target.value)} /></label><div className="actions"><Button secondary disabled={!UUID.test(memberId) || busy} onClick={() => void run(async () => { await client?.roleRpc('set_league_moderator', { p_league_id: leagueId, p_member_user_id: memberId, p_is_moderator: true }); flash('Moderator role enabled. Review authority remains separately delegated.'); await loadRoster(); })}>Promote moderator</Button><Button secondary disabled={!UUID.test(memberId) || busy} onClick={() => void run(async () => { await client?.roleRpc('set_league_moderator', { p_league_id: leagueId, p_member_user_id: memberId, p_is_moderator: false }); flash('Moderator role removed.'); await loadRoster(); })}>Demote</Button><Button secondary disabled={!UUID.test(memberId) || busy} onClick={() => void act('delegate_review', { league_id: leagueId, member_id: memberId, enabled: true }, 'Review delegation granted to active moderator.')}>Grant review</Button><Button secondary disabled={!UUID.test(memberId) || busy} onClick={() => void act('delegate_review', { league_id: leagueId, member_id: memberId, enabled: false }, 'Review delegation revoked.')}>Revoke review</Button><Button secondary disabled={!UUID.test(memberId) || busy} onClick={() => void run(async () => { await client?.roleRpc('set_league_moderator_permission', { p_league_id: leagueId, p_member_user_id: memberId, p_permission_name: 'view_member_roster', p_enabled: true }); flash('Roster visibility delegated.'); })}>Grant roster view</Button><Button secondary disabled={!UUID.test(memberId) || busy} onClick={() => void run(async () => { await client?.roleRpc('set_league_moderator_permission', { p_league_id: leagueId, p_member_user_id: memberId, p_permission_name: 'view_member_roster', p_enabled: false }); flash('Roster delegation removed.'); })}>Revoke roster view</Button><Button danger disabled={!UUID.test(memberId) || moderationReason.trim().length < 3 || busy} onClick={() => void act('suspend_member', { league_id: leagueId, member_id: memberId, reason: moderationReason.trim() }, 'Member suspended.', loadRoster)}>Suspend</Button><Button secondary disabled={!UUID.test(memberId) || busy} onClick={() => void act('unsuspend_member', { league_id: leagueId, member_id: memberId }, 'Member suspension lifted.')}>Unsuspend</Button><Button danger disabled={!UUID.test(memberId) || busy} onClick={() => { if (window.confirm('Remove this member from the current league?')) void act('remove_member', { league_id: leagueId, member_id: memberId }, 'Current membership ended.', loadRoster); }}>Remove</Button></div></div>}
+              <Section notice={notice} title="Roster & delegated permissions"><p className="muted">Roster visibility is restricted by database policies. Owners alone promote/demote moderators and assign individual permissions. Moderators can see this league roster; all action permissions default OFF. Review rights are independently delegated. No one can approve their own submission.</p>{members.length ? <div className="item-list">{members.map(m => <div className="item" key={m.user_id}><div><strong>{m.username} · {m.role}</strong><small className="monospace">UUID: {m.user_id} · joined {dateText(m.joined_at)}</small><small>Effective access: {m.role === 'owner' ? 'Owner (all league controls)' : m.role === 'moderator' ? ['roster', ...m.permissions].join(', ') : 'Own membership only'}</small></div><Button secondary onClick={() => { setMemberId(m.user_id); void navigator.clipboard?.writeText(m.user_id).catch(() => {}); }}>Select / copy UUID</Button></div>)}</div> : <Empty>No roster loaded. Members without roster privileges may only see their own membership.</Empty>}
+                {isOwner(selected) && <div className="stack admin"><label>Selected member UUID<input value={memberId} onChange={e => setMemberId(e.target.value)} placeholder="Choose from roster" /></label><label>Reason for suspension (minimum 3 characters)<input value={moderationReason} onChange={e => setModerationReason(e.target.value)} /></label><div className="actions"><Button secondary disabled={!UUID.test(memberId) || busy} onClick={() => void run(async () => { await client?.roleRpc('set_league_moderator', { p_league_id: leagueId, p_member_user_id: memberId, p_is_moderator: true }); flash('Moderator role enabled. Review authority remains separately delegated.'); await loadRoster(); })}>Promote moderator</Button><Button secondary disabled={!UUID.test(memberId) || busy} onClick={() => void run(async () => { await client?.roleRpc('set_league_moderator', { p_league_id: leagueId, p_member_user_id: memberId, p_is_moderator: false }); flash('Moderator role removed.'); await loadRoster(); })}>Demote</Button><Button secondary disabled={!UUID.test(memberId) || busy} onClick={() => void act('delegate_review', { league_id: leagueId, member_id: memberId, enabled: true }, 'Review delegation granted to active moderator.')}>Grant review</Button><Button secondary disabled={!UUID.test(memberId) || busy} onClick={() => void act('delegate_review', { league_id: leagueId, member_id: memberId, enabled: false }, 'Review delegation revoked.')}>Revoke review</Button>{(['manage_invitations','manage_members'] as const).map(permission => <span key={permission} className="actions"><Button secondary disabled={!UUID.test(memberId) || chosenMember?.role!=='moderator' || busy} onClick={() => void act('set_permission', {league_id:leagueId,member_id:memberId,permission,enabled:true}, `Granted ${permission}.`,loadRoster)}>Grant {permission.replace('_',' ')}</Button><Button secondary disabled={!UUID.test(memberId) || chosenMember?.role!=='moderator' || busy} onClick={() => void act('set_permission', {league_id:leagueId,member_id:memberId,permission,enabled:false}, `Revoked ${permission}.`,loadRoster)}>Revoke {permission.replace('_',' ')}</Button></span>)}<Button danger disabled={!UUID.test(memberId) || moderationReason.trim().length < 3 || busy} onClick={() => void act('suspend_member', { league_id: leagueId, member_id: memberId, reason: moderationReason.trim() }, 'Member suspended.', loadRoster)}>Suspend</Button><Button secondary disabled={!UUID.test(memberId) || busy} onClick={() => void act('unsuspend_member', { league_id: leagueId, member_id: memberId }, 'Member suspension lifted.')}>Unsuspend</Button><Button danger disabled={!UUID.test(memberId) || busy} onClick={() => { if (window.confirm('Remove this member from the current league?')) void act('remove_member', { league_id: leagueId, member_id: memberId }, 'Current membership ended.', loadRoster); }}>Remove</Button></div></div>}
+              {canManageMembers && !isOwner(selected) && <div className="stack admin"><p className="muted">Delegated ordinary-member administration only. You cannot alter owners, moderators or your own membership.</p><label>Selected ordinary member UUID<input readOnly value={memberId} /></label><label>Suspension reason<input value={moderationReason} onChange={e=>setModerationReason(e.target.value)} /></label><div className="actions"><Button danger disabled={busy || chosenMember?.role!=='member' || moderationReason.trim().length<3} onClick={() => void act('manage_member',{league_id:leagueId,member_id:memberId,operation:'suspend',reason:moderationReason.trim()},'Member suspended by delegated authority.',loadRoster)}>Suspend member</Button><Button danger disabled={busy || chosenMember?.role!=='member'} onClick={() => { if(window.confirm('Remove this ordinary member?')) void act('manage_member',{league_id:leagueId,member_id:memberId,operation:'remove'},'Ordinary membership ended.',loadRoster); }}>Remove member</Button></div></div>}
               </Section>
+              <Section notice={notice} title="Pending identity evidence (no awards)"><p className="muted">Reviewer-only, read-only suggestions; no historical approval or award is made by loading this evidence. Verify independent official date and mode before any decision.</p><Button secondary disabled={busy || !leagueId} onClick={() => void loadPendingEvidence()}>Evaluate hosted pending evidence</Button>{pendingEvidence.map(e=><div key={e.request_id} className="item"><div><strong>{catalogueName(e.game)} · {e.suggestion.replaceAll('_',' ')}</strong><small>Verified day: {e.verified_day ?? 'unverified'} · Independent reviewer: {e.reviewer_independent ? 'yes':'no'}</small><small>{e.evidence}</small><small>Source: {e.reference_source_kind ?? 'Unavailable'} · Evidence digest: {e.reference_digest ? e.reference_digest.slice(0,12)+'…' : 'Unavailable'}</small><small>Historical awards are never changed by suggestions.</small></div></div>)}</Section>
             </>}
           </>}
         </>}
       </main></div>
-    <footer className="footer"><span>Phase 5 local implementation · {publicConfig.stage}</span><span>Server-authoritative scores · {online ? 'Connected to network' : 'Offline mode: read-only'}</span></footer>
-    <nav className="mobile-nav" aria-label="Mobile navigation">{navigation.map(n => <button className={page === n.id || ((page === 'season-setup' || page === 'league-detail') && n.id === 'leagues') ? 'active' : ''} key={n.id} onClick={() => setPage(n.id)} aria-current={page === n.id || ((page === 'season-setup' || page === 'league-detail') && n.id === 'leagues') ? 'page' : undefined}>{n.id === 'moderation' ? 'Review' : n.label}</button>)}</nav>
+    <footer className="footer"><span>Puzzle League · Polishing candidate · {publicConfig.stage}</span><span>Server-authoritative scores · {online ? 'Connected to network' : 'Offline mode: read-only'}</span></footer>
+    <nav className="mobile-nav" aria-label="Mobile navigation">{navigation.map(n => <button className={page === n.id || ((page === 'season-setup' || page === 'league-detail') && n.id === 'leagues') ? 'active' : ''} key={n.id} onClick={() => setPage(n.id)} aria-current={page === n.id || ((page === 'season-setup' || page === 'league-detail') && n.id === 'leagues') ? 'page' : undefined}>{n.id === 'moderation' ? 'Review' : n.id === 'find-leagues' ? 'Find' : n.id === 'leagues' ? 'Leagues' : n.label}</button>)}</nav>
   </div>;
 }
 export default App;
