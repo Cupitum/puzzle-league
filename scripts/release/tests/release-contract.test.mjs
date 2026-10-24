@@ -33,7 +33,8 @@ test('the thirteen applied baseline migrations stay intact; candidate additions 
   assert.ok(rows.includes('20261018150000_phase6_unlinked_polygonle_recovery.sql'));
   assert.deepEqual(rows.filter(x => x >= '20261023100000').sort(), [
     '20261023100000_polishing_permissions_and_requests.sql',
-    '20261023100100_polishing_verified_streak.sql']);
+    '20261023100100_polishing_verified_streak.sql',
+    '20261023100200_polishing_identity_evidence.sql']);
 });
 test('static headers protect SW, HTML and app shell', () => {
   const h=file('public/_headers');

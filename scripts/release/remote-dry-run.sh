@@ -8,9 +8,9 @@ ref_file='supabase/.temp/project-ref'
 [[ -f "$ref_file" ]] || { echo 'STOP: link this repo to your intended managed project first' >&2; exit 1; }
 actual="$(tr -d '\r\n' < "$ref_file")"
 [[ "$actual" == "$RELEASE_SUPABASE_PROJECT_REF" ]] || { echo 'STOP: linked project DOES NOT MATCH expected ref' >&2; exit 1; }
-[[ "$(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | wc -l)" -eq 15 ]] || { echo 'STOP: migration source count changed' >&2; exit 1; }
-[[ -z "$(git diff --name-only -- supabase/migrations | grep -v -E '20261023100(00|100)_polishing_' || true)" ]] || { echo 'STOP: protected baseline migration edited' >&2; exit 1; }
-[[ "$(find supabase/migrations -maxdepth 1 -name '*.sql' | grep -E '20261023100(00|100)_polishing_' | wc -l)" -eq 2 ]] || { echo 'STOP: unreviewed candidate migration names' >&2; exit 1; }
+[[ "$(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | wc -l)" -eq 16 ]] || { echo 'STOP: migration source count changed' >&2; exit 1; }
+[[ -z "$(git diff --name-only -- supabase/migrations | grep -v -E '20261023100(00|100|200)_polishing_' || true)" ]] || { echo 'STOP: protected baseline migration edited' >&2; exit 1; }
+[[ "$(find supabase/migrations -maxdepth 1 -name '*.sql' | grep -E '20261023100(00|100|200)_polishing_' | wc -l)" -eq 3 ]] || { echo 'STOP: unreviewed candidate migration names' >&2; exit 1; }
 echo 'READ ONLY: linked migration list (review target carefully)'
 npx --no-install supabase migration list --linked
 echo 'READ ONLY: managed migration dry run (NO apply)'
