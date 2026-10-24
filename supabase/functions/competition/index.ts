@@ -37,12 +37,78 @@ Deno.serve(async req => {
   }
   let data:Record<string,unknown>={...(body.data && typeof body.data==='object'&&!Array.isArray(body.data)
     ?body.data as Record<string,unknown>:{})};
+  // P8 account proof: trusted caller identity only. No client-supplied actor or email.
+  const emailActions=new Set(['email_verification_status','email_send_verification','email_confirm_verification']);
+  if(emailActions.has(action)) {
+    if(!actor || !verifiedEmail) return json({error:'Signed-in email account required'},401);
+    const rpc=async (name:string,args:Record<string,unknown>)=>{
+      return fetch(`${url}/rest/v1/rpc/${name}`,{method:'POST',
+        headers:{apikey:secret,authorization:`Bearer ${secret}`,'content-type':'application/json'},
+        body:JSON.stringify(args)});
+    };
+    if(action==='email_verification_status') {
+      try {const res=await rpc('p8_email_status',{p_actor:actor});
+        if(!res.ok)return json({error:'Verification status unavailable'},503);
+        return json({ok:true,result:await res.json()});
+      } catch{return json({error:'Verification status unavailable'},503);}
+    }
+    // A server-only HMAC protects short codes against offline DB guessing.
+    const pepper=Deno.env.get('PUZZLE_VERIFY_HMAC_KEY');
+    if(!pepper || pepper.length<32) return json({error:'Email verification not configured'},503);
+    const makeHash=async (code:string)=>{
+      const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(pepper),
+        {name:'HMAC',hash:'SHA-256'},false,['sign']);
+      const raw=new Uint8Array(await crypto.subtle.sign('HMAC',key,
+        new TextEncoder().encode(`${actor}:${verifiedEmail.toLowerCase()}:${code}`)));
+      return Array.from(raw).map(v=>v.toString(16).padStart(2,'0')).join('');
+    };
+    if(action==='email_confirm_verification') {
+      if(typeof data.code!=='string'|| !/^[0-9]{8}$/u.test(data.code))
+        return json({error:'Enter the eight-digit code from your email'},400);
+      try {const digest=await makeHash(data.code);
+        const res=await rpc('p8_email_confirm',{p_actor:actor,p_email:verifiedEmail,p_digest:digest});
+        if(!res.ok)return json({error:'Verification currently unavailable'},503);
+        const accepted=await res.json();
+        if(accepted!==true)return json({error:'Incorrect, expired or exhausted verification code'},403);
+        return json({ok:true,result:{verified:true}});
+      } catch{return json({error:'Verification currently unavailable'},503);}
+    }
+    // Do not create a usable challenge when email delivery is not configured.
+    const brevo=Deno.env.get('BREVO_API_KEY');
+    const sender=Deno.env.get('PUZZLE_VERIFICATION_SENDER');
+    if(!brevo || !sender || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(sender))
+      return json({error:'Verification email delivery not configured'},503);
+    // Secure uniform random 8-digit code; never include it in a response/log.
+    const bytes=new Uint32Array(1);crypto.getRandomValues(bytes);
+    const code=(bytes[0]%100000000).toString().padStart(8,'0');
+    try {
+      const digest=await makeHash(code);
+      const begin=await rpc('p8_email_begin',{p_actor:actor,p_email:verifiedEmail,p_digest:digest});
+      if(!begin.ok)return json({error:'Verification already sent or request limited; try again later'},429);
+      const delivery=await fetch('https://api.brevo.com/v3/smtp/email',{
+        method:'POST',headers:{'api-key':brevo,'content-type':'application/json','accept':'application/json'},
+        body:JSON.stringify({sender:{email:sender,name:'Puzzle League'},
+          to:[{email:verifiedEmail}],subject:'Puzzle League: verify your email',
+          htmlContent:`<p>Your Puzzle League verification code is <strong>${code}</strong>.</p><p>It expires in 15 minutes. If you did not request it, ignore this message.</p>`})});
+      if(!delivery.ok)return json({error:'Email delivery failed; try again after the resend interval'},503);
+      return json({ok:true,result:{sent:true,expires_in_minutes:15}});
+    } catch{return json({error:'Verification service unavailable'},503);}
+  }
   // Polishing RPCs are deliberately separate from the frozen competition dispatcher.
   const protectedPolish=new Set(['roster','set_permission','create_invitation',
     'revoke_invitation','manage_member','pending_evidence','deletion_status','request_deletion']);
   if(protectedPolish.has(action)) {
     if(!actor) return json({error:'Authentication required'},401);
     if(action==='request_deletion') {
+      // Supabase Confirm Email=OFF implicitly confirms all accounts, so check
+      // the separate operator-proof state before accepting account requests.
+      try {const proof=await fetch(`${url}/rest/v1/rpc/p8_email_status`,{
+        method:'POST',headers:{apikey:secret,authorization:`Bearer ${secret}`,'content-type':'application/json'},
+        body:JSON.stringify({p_actor:actor})});
+        if(!proof.ok || !(await proof.json())?.verified)
+          return json({error:'Verify your email in Account first'},403);
+      } catch{return json({error:'Email proof unavailable'},503);}
+
       // Fresh proof of the registered email/password, never stored or logged.
       if(!verifiedEmail || typeof data.current_password!=='string' ||
           data.current_password.length<6 || data.current_password.length>256)
@@ -78,6 +144,20 @@ Deno.serve(async req => {
       if(!res.ok) return json({error:'Independent reviewer permission required'},403);
       return json({ok:true,result:await res.json()});
     } catch {return json({error:'Reviewer evidence unavailable'},503);}
+  }
+  if(action==='export_history_page') {
+    if(!actor)return json({error:'Authentication required'},401);
+    const offset=data.offset;
+    const game=data.game;
+    if(typeof offset!=='number'||!Number.isInteger(offset)||offset<0||offset>1000000||
+      !(game===null || game===undefined || ['wordle','minute_cryptic','foximax','polygonle','krillion'].includes(String(game))))
+      return json({error:'Invalid history page'},400);
+    try {const res=await fetch(`${url}/rest/v1/rpc/p8_history_page`,{
+      method:'POST',headers:{apikey:secret,authorization:`Bearer ${secret}`,'content-type':'application/json'},
+      body:JSON.stringify({p_actor:actor,p_offset:offset,p_limit:100,p_game:game??null})});
+      if(!res.ok)return json({error:'History export unavailable'},503);
+      return json({ok:true,result:await res.json()});
+    } catch {return json({error:'History export unavailable'},503);}
   }
   if(action==='daily_dashboard' || action==='native_history') {
     if(!actor) return json({error:'Authentication required'},401);

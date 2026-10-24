@@ -18,6 +18,7 @@ function harness({
   userStatus = 200,
   userId = validActor,
   confirmed = true,
+  customVerified = true,
   loginStatus = 200,
   loginUser = validActor,
   rpcStatus = 200,
@@ -49,6 +50,8 @@ function harness({
     }
     if (uri.includes('/auth/v1/token?')) return new Response(JSON.stringify({user:{id:loginUser}}),
       {status:loginStatus,headers:{'content-type':'application/json'}});
+    if (uri.includes('/rest/v1/rpc/p8_email_status')) return new Response(JSON.stringify({verified:customVerified}),
+      {status:rpcStatus,headers:{'content-type':'application/json'}});
     if (uri.includes('/rest/v1/rpc/')) {
       if (throwRpc) throw new Error('synthetic PostgREST outage');
       return new Response(JSON.stringify({mock_receipt:true}),
@@ -57,6 +60,7 @@ function harness({
     throw new Error('unexpected outbound endpoint: ' + uri);
   };
   const sandbox = {
+    crypto:globalThis.crypto,
     Deno: {env:{get: (key)=>env[key]},serve(fn){ handler=fn;}},
     fetch:fetchMock, Response, Request, Headers,
     __identity:{evaluateEvidence:()=>({verified:false,reason:'no_independent_reference'})},
@@ -153,17 +157,17 @@ test('account-deletion request requires confirmed email and current password',as
 });
 test('account deletion rejects incorrect password and does not record request',async()=>{
   const h=harness({loginStatus:400});const r=await h.send('request_deletion',{data:{current_password:'password123'}});
-  assert.equal(r.status,403);assert.equal(rpcCalls(h).length,0);
+  assert.equal(r.status,403);assert.equal(rpcCalls(h).filter(c=>!c.uri.includes('p8_email_status')).length,0);
 });
 test('account deletion rejects password for a different authenticated user',async()=>{
   const h=harness({loginUser:otherActor});const r=await h.send('request_deletion',{data:{current_password:'password123'}});
-  assert.equal(r.status,403);assert.equal(rpcCalls(h).length,0);
+  assert.equal(r.status,403);assert.equal(rpcCalls(h).filter(c=>!c.uri.includes('p8_email_status')).length,0);
 });
 test('successful reauthentication discards password before any RPC; user id pinned',async()=>{
   const h=harness();const r=await h.send('request_deletion',{
     data:{current_password:'SyntheticPassword123!',p_actor:otherActor}});
   assert.equal(r.status,200);
-  const c=rpcCalls(h);assert.equal(c.length,1);
+  const c=rpcCalls(h).filter(c=>!c.uri.includes('p8_email_status'));assert.equal(c.length,1);
   const payload=JSON.parse(c[0].options.body);
   assert.equal(payload.p_actor,validActor);
   assert.ok(!Object.hasOwn(payload.p_data,'current_password'));
@@ -181,4 +185,10 @@ test('oversized claimed content length is rejected before GoTrue',async()=>{
 test('an unsupported HTTP method never touches auth or RPC',async()=>{
   const h=harness();const r=await h.send('roster',{method:'GET'});
   assert.equal(r.status,405);assert.equal(h.calls.length,0);
+});
+
+test('an account without independent email proof cannot request deletion',async()=>{
+  const h=harness({customVerified:false});const r=await h.send('request_deletion',{data:{current_password:'SyntheticPassword123!'}});
+  assert.equal(r.status,403);
+  assert.equal(h.calls.filter(c=>c.uri.includes('/auth/v1/token')).length,0);
 });

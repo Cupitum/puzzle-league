@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { gameCatalog, type GameId } from '../domain/games/catalog';
 import { arrayOf, boardFrom, catalogueName, gameScores, safePreview, type Board, type History, type League, type Member, type PublicLeague, type Report, type Review, type Season } from '../domain/competition/view-model';
-import { client, SESSION_STORAGE_KEY, validPublicUsername, type Session } from '../infrastructure/client';
+import { client, SESSION_STORAGE_KEY, validPublicUsername, signupPasswordRules, signupPasswordValid, type Session } from '../infrastructure/client';
 import { publicConfig } from '../config/public-env';
 import { firstAccessibleLeague, initialSeason } from '../domain/competition/selection';
 import { consumeIncomingShare, registerPwa } from '../infrastructure/pwa';
@@ -61,6 +61,10 @@ function App() {
   const [nativeHistory, setNativeHistory] = useState<NativeHistory[]>([]);
   const [historyGame, setHistoryGame] = useState('all');
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [emailVerified, setEmailVerified] = useState<boolean | null>(null);
+  const [emailCode, setEmailCode] = useState('');
+  const [emailStatusLoading, setEmailStatusLoading] = useState(false);
+  const [downloadBusy, setDownloadBusy] = useState(false);
   const [historyError, setHistoryError] = useState('');
   const [joinToken, setJoinToken] = useState('');
   const [leagueName, setLeagueName] = useState('');
@@ -133,6 +137,52 @@ function App() {
     catch { setHistoryError('Result history could not be loaded.'); }
     finally { setHistoryLoading(false); }
   }, []);
+  const refreshEmailStatus = useCallback(async () => {
+    if (!client?.currentSession) { setEmailVerified(null); return; }
+    setEmailStatusLoading(true);
+    try {const reply = await client.call('email_verification_status') as { verified?: boolean };
+      setEmailVerified(reply?.verified === true);
+    } catch {setEmailVerified(null);}
+    finally {setEmailStatusLoading(false);}
+  }, []);
+  const fullResultHistory = useCallback(async (game: string): Promise<NativeHistory[]> => {
+    if(!client?.currentSession) throw new Error('Sign in before viewing result history.');
+    const all: NativeHistory[]=[];
+    // Fetch every page. Never silently claim a truncated export is complete.
+    for(let offset=0; offset<=1000000;offset+=100){
+      const page=arrayOf<NativeHistory>(await client.call('export_history_page',
+        {offset,game:game==='all'?null:game}));
+      all.push(...page);
+      if(page.length<100)return all;
+    }
+    throw new Error('History is too large to export safely in one request. Contact the pilot administrator.');
+  }, []);
+  async function exportResultsCsv() {
+    if (downloadBusy) return;
+    setDownloadBusy(true);
+    try {
+      const rows=await fullResultHistory(historyGame);
+      const csvValue=(v:unknown)=>{
+        let str=String(v??'');
+        // Prevent spreadsheet formula injection when CSVs are opened in Excel.
+        if(/^[\t\r\n ]*[=+@-]/u.test(str)) str="'"+str;
+        return '"'+str.replaceAll('"','""')+'"';
+      };
+      const lines=[['Submitted','Game','Puzzle identity','Verified day','Native result',
+        'Parse status','Review status','Awarded leagues'].map(csvValue).join(',')];
+      for(const row of rows) lines.push([row.submitted_at,row.game,row.identity_key,
+        row.puzzle_day,row.result_display,row.parse_status,row.review_status,row.awarded_leagues]
+        .map(csvValue).join(','));
+      const blob=new Blob(['\ufeff',lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
+      const objectUrl=URL.createObjectURL(blob);
+      try{const link=document.createElement('a');link.href=objectUrl;
+        link.download=`puzzle-league-results-${historyGame}-${new Date().toISOString().slice(0,10)}.csv`;
+        document.body.appendChild(link);link.click();link.remove();}
+      finally {URL.revokeObjectURL(objectUrl);}
+      flash(`${rows.length} personal result records exported as CSV.`);
+    }catch(error){flash(error instanceof Error?error.message:'History export failed.',true);}
+    finally{setDownloadBusy(false);}
+  }
   const loadCore = useCallback(async () => {
     if (!client?.currentSession) return;
     const [leagueData, historyData, profiles] = await Promise.all([
@@ -144,8 +194,9 @@ function App() {
     setHistory(arrayOf<History>(historyData));
     void refreshDaily();
     void loadNativeHistory();
+    void refreshEmailStatus();
     setNickname(profiles[0]?.nickname ?? '');
-  }, [refreshDaily, loadNativeHistory]);
+  }, [refreshDaily, loadNativeHistory, refreshEmailStatus]);
   const loadLeague = useCallback(async (id: string, focusFirstSeason = false) => {
     if (!client?.currentSession || !id) return;
     const data = arrayOf<Season>(await client.call('season_list', { league_id: id }));
@@ -202,7 +253,7 @@ function App() {
         const publicSeason = params.get('season');
         if (publicSeason && UUID.test(publicSeason)) { setSeasonId(publicSeason); setPage('rankings'); }
         const token = params.get('invite');
-        if (token && UUID.test(token)) { setJoinToken(token); setPage('leagues'); }
+        if (token && UUID.test(token)) { setJoinToken(token); setPage('find-leagues'); }
       } catch (error) {
         if (!cancelled) flash(error instanceof Error ? error.message : 'Session restoration failed.', true);
       } finally { if (!cancelled) setBooting(false); }
@@ -308,6 +359,7 @@ function App() {
     const api = client;
     if (!api) return flash('Backend not configured. Create .env.local in the project root and restart Vite.', true);
     if (signup && !validPublicUsername(signupUsername.trim())) return flash('Choose a public display name (3–40 letters, numbers, spaces, dots, dashes or underscores).', true);
+    if (signup && !signupPasswordValid(password)) return flash('Choose a stronger password. Meet all four requirements shown beneath the password field.', true);
     if (signup && password !== confirmPassword) return flash('Passwords do not match. Please check both fields.', true);
     await run(async () => {
       const result = await api.authenticate(email.trim(), password, signup, signupUsername.trim());
@@ -413,10 +465,15 @@ function App() {
             {auth && <Section title="Today's Results" notice={notice}><p className="muted">This summary uses the same server-provided daily status as Home. Unverified streaks remain unavailable.</p><div className="today-summary">{daily.map((r,i) => { const result = nativeHistory.find(h => h.game === r.game && r.puzzle_day && h.puzzle_day === r.puzzle_day); return <div className="today-item" key={`${r.game}-${i}`}><strong>{catalogueName(r.game)}</strong><span>{result?.result_display ?? (r.status === 'outstanding' ? 'Outstanding' : 'Identity or result unverified')}</span><small>Verified awarded-day streak: {r.streak === null ? 'Unavailable' : `${r.streak} days`}</small></div>; })}</div>{!daily.length && <Empty>No verified daily games available.</Empty>}</Section>}
             <Section title="Past submissions" notice={notice} extra={<Button secondary disabled={historyLoading} onClick={() => void loadNativeHistory()}>Refresh</Button>}>
               <label>Filter by game<select value={historyGame} onChange={e => setHistoryGame(e.target.value)}><option value="all">All games</option>{gameCatalog.map(g => <option key={g.id} value={g.id}>{g.label}</option>)}</select></label>
+              <div className="actions"><Button secondary disabled={historyLoading || downloadBusy} onClick={()=>void run(async()=>{
+                const records=await fullResultHistory(historyGame);setNativeHistory(records);
+                flash(`Showing ${records.length} records for ${historyGame==='all'?'all games':catalogueName(historyGame)}.`);
+              })}>View complete {historyGame==='all'?'history':'game history'}</Button>
+              <Button disabled={historyLoading || downloadBusy} onClick={()=>void exportResultsCsv()}>{downloadBusy?'Preparing CSV…':'Download history (CSV)'}</Button></div>
               {historyLoading && <p role="status">Loading history…</p>}{historyError && <p role="alert">{historyError}</p>}
               <div className="daily-scroll"><table className="daily-table"><thead><tr><th>Submitted</th><th>Game</th><th>Puzzle</th><th>Original result</th><th>Review</th></tr></thead><tbody>{nativeHistory.filter(h => historyGame === 'all' || h.game === historyGame).map(h => <tr key={h.id}><td>{dateText(h.submitted_at)}</td><td>{catalogueName(h.game)}</td><td>{h.identity_key ? `#${h.identity_key}` : 'Unknown'}{h.puzzle_day ? ` · ${h.puzzle_day}` : ' · Date unverified'}</td><td>{h.result_display ?? 'Unable to interpret'}</td><td>{h.review_status}</td></tr>)}</tbody></table></div>
               {!historyLoading && !nativeHistory.length && !historyError && <Empty>No previous submissions found.</Empty>}
-              <p className="muted">Up to 100 most recent records. A recorded result is not proof of an official puzzle date, eligibility, or awarded points.</p>
+              <p className="muted">Initially the 100 most recent records; choose View complete history to load older records. A recorded result is not proof of an official puzzle date, eligibility, or awarded points.</p>
             </Section>
           </>}
           {page === 'account' && <>
@@ -428,15 +485,38 @@ function App() {
                 </label>}
                 <label>Email <input type="email" required autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} /></label>
                 <label>Password <input type={showPassword ? 'text' : 'password'} required minLength={6} autoComplete={signup ? 'new-password' : 'current-password'} value={password} onChange={e => setPassword(e.target.value)} /></label>
+                {signup && <div aria-label="Password requirements" className="password-rules"><strong>Password requirements</strong>
+                  {signupPasswordRules.map(rule => <div key={rule.label} role="status" className={rule.check(password) ? 'rule-met' : 'rule-unmet'}>{rule.check(password) ? '✓' : '○'} {rule.label}</div>)}
+                  <small className="muted">Your authentication provider may require an even stronger password.</small>
+                </div>}
                 {signup && <label>Confirm password <input type={showPassword ? 'text' : 'password'} required minLength={6} autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} aria-invalid={confirmPassword.length > 0 && confirmPassword !== password} /></label>}
                 <label className="check"><input type="checkbox" checked={showPassword} onChange={e => setShowPassword(e.target.checked)} /> Show passwords</label>
                 {signup && confirmPassword && confirmPassword !== password && <p className="form-warning" role="alert">Passwords do not match.</p>}
-                <Button disabled={busy || !client || (signup && (password !== confirmPassword || !validPublicUsername(signupUsername.trim())))} type="submit">{signup ? 'Create account' : 'Sign in'}</Button>
+                <Button disabled={busy || !client || (signup && (password !== confirmPassword || !signupPasswordValid(password) || !validPublicUsername(signupUsername.trim())))} type="submit">{signup ? 'Create account' : 'Sign in'}</Button>
                 <button type="button" className="text-button" onClick={() => { setSignup(!signup); setConfirmPassword(''); setPassword(''); setShowPassword(false); }}>{signup ? 'Already a member? Sign in' : 'New here? Create account'}</button>
+                <Button secondary disabled={busy || !email.includes('@')} onClick={() => void run(async () => {
+                  await client?.resendNativeSignupConfirmation(email.trim());
+                  flash('If an unconfirmed signup exists, Supabase has been asked to resend its confirmation email.');
+                })}>Resend original signup confirmation</Button>
                 {!signup && <button type="button" className="text-button" aria-expanded={showRecoveryHelp} onClick={() => setShowRecoveryHelp(v=>!v)}>Forgot password? Recovery status</button>}
                 {showRecoveryHelp && <p role="status" className="form-warning">Verified emailed-code recovery is not enabled for this pilot. Secure external delivery and code verification have not passed; contact the trusted platform administrator using your established support channel. Do not send your password or codes to a league owner or moderator.</p>}
               </form></Section> : <>
               <Section notice={notice} title="Player profile"><p className="muted">Signed in as {session?.user.email ?? 'authenticated account'}. Your private email is never shown on leaderboards.</p><form className="stack" onSubmit={e => { e.preventDefault(); void act('update_profile', { nickname: nickname.trim() }, 'Nickname updated.'); }}><label>Public nickname <input maxLength={40} required value={nickname} onChange={e => setNickname(e.target.value)} /></label><Button type="submit" disabled={busy || !nickname.trim()}>Save nickname</Button></form></Section>
+              <Section notice={notice} title="Email verification">
+                <p role="status">{emailStatusLoading ? 'Checking status…' : emailVerified === true ? 'Email independently verified.' : emailVerified === false ? 'Email not yet independently verified. You can use basic account features, but creating leagues and being promoted to moderator require verification.' : 'Verification status unavailable. Privileged actions remain server-controlled.'}</p>
+                {emailVerified !== true && <div className="stack">
+                  <p className="muted">Email a new eight-digit code to your registered address; codes expire after 15 minutes. Resending invalidates the previous code and is rate-limited.</p>
+                  <Button secondary disabled={busy || emailStatusLoading} onClick={() => void run(async()=>{
+                    await client?.call('email_send_verification'); flash('Verification email requested. Check your registered inbox and spam folder.');
+                  })}>Send / resend verification email</Button>
+                  <label>Eight-digit email verification code<input type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{8}" maxLength={8} value={emailCode} onChange={e=>setEmailCode(e.target.value.replace(/[^0-9]/gu,''))} placeholder="00000000" /></label>
+                  <Button disabled={busy || !/^[0-9]{8}$/u.test(emailCode)} onClick={()=>void run(async()=>{
+                    await client?.call('email_confirm_verification',{code:emailCode});setEmailCode('');
+                    await refreshEmailStatus();flash('Email successfully verified. League creation and moderator eligibility are now available.');
+                  })}>Verify email</Button>
+                </div>}
+                <Button secondary disabled={busy} onClick={()=>void refreshEmailStatus()}>Refresh verification status</Button>
+              </Section>
               <Section notice={notice} title="Password recovery"><p className="muted">In-app emailed-code recovery is not enabled: external delivery, replay protection and secure code verification have not yet been demonstrated. Please do not share passwords or reset codes with a league moderator.</p></Section>
               <Section notice={notice} title="Request account deletion"><p className="muted">A verified request is recorded for manual review by trusted platform administrators. It does NOT immediately delete your account, submissions or awards. Existing owned leagues, retention duties and legal obligations must be resolved before any irreversible action.</p><label>Current account password (fresh verification required)<input type="password" autoComplete="current-password" value={deletionPassword} onChange={e=>setDeletionPassword(e.target.value)} /></label><label className="check"><input type="checkbox" checked={deletionAcknowledged} onChange={e=>setDeletionAcknowledged(e.target.checked)} />I understand deletion is not immediate and may be irreversible after manual processing.</label><Button danger disabled={busy || !deletionAcknowledged || deletionPassword.length<6 || deletionRequests.some(r=>['identity_verified','under_review','awaiting_owner_resolution'].includes(r.status))} onClick={() => {if(!window.confirm('Submit a verified request for manual account deletion review?')) return; void run(async()=>{const pwd=deletionPassword;setDeletionPassword('');await client?.call('request_deletion',{current_password:pwd});await refreshDeletion();flash('Request recorded for manual platform-admin review. Your account remains active.');});}}>Request manual deletion review</Button>{deletionRequests.map(r=><p key={r.request_id} className="muted">Request {r.request_id} · {r.status.replaceAll('_',' ')} · {dateText(r.created_at)}</p>)}<Button secondary disabled={busy} onClick={()=>void run(async()=>{await refreshDeletion();flash('Request status refreshed.');})}>Refresh request status</Button></Section>
               <Section notice={notice} title="Session"><p className="muted">Your account stays signed in across pages, app restarts and Android Share launches on this device. Use Sign out on a shared device; never use a public computer for a persistent session.</p><Button danger onClick={() => void run(async () => { await client?.signOut(); setSession(null); setLeagues([]); setHistory([]); setLeagueId(''); setSeasons([]); setBoard({ combined: [], by_game: [], streaks: [] }); setReviews([]); setReports([]); setRawText(''); setInvite(''); flash('Signed out locally.'); })}>Sign out</Button></Section>
@@ -483,6 +563,8 @@ function App() {
               {publicLeagues.length ? <div className="item-list">{publicLeagues.map(l => <div className="item" key={l.id}><div><strong>{l.name}</strong><small>Public · {l.time_zone}</small></div><Button disabled={!auth || busy} secondary onClick={() => void act('join', { league_id: l.id }, 'Join request accepted by the server.', loadCore)}>Join</Button></div>)}</div> : <Empty>No publicly listed leagues are available from this backend.</Empty>}
               {!auth && <p className="muted">Sign in to join. Guests can view public standings only when given a season ID.</p>}
             </Section>
+            {auth && <>              <Section notice={notice} title="Join with an invitation"><form className="inline-form" onSubmit={e => { e.preventDefault(); void act('join', { invite_token: joinToken.trim() }, 'Private invitation accepted.', async () => { setJoinToken(''); await loadCore(); }); }}><label>Invitation token <input value={joinToken} onChange={e => setJoinToken(e.target.value)} placeholder="UUID from league owner" required /></label><Button disabled={busy || !UUID.test(joinToken.trim())} type="submit">Join private league</Button></form><p className="muted">One-use invitations expire after seven days. Keep the token private.</p></Section>
+</>}
             </>}
           {page === 'leagues' && <>
             <div className="page-heading"><span className="overline">YOUR COMMUNITIES</span><h1>My Leagues</h1><p>Select a league or create one. To join a public league, use Find Leagues.</p></div>
@@ -490,7 +572,6 @@ function App() {
               <Section notice={notice} title="My leagues" extra={<Button secondary onClick={() => void run(loadCore)}>Refresh</Button>}>
                 {leagues.length ? <div className="item-list">{leagues.map(l => <div className="item" key={l.league_id}><div><strong>{l.name}</strong><small>{l.visibility} · {l.time_zone} · {l.is_owner ? 'Owner' : 'Member'}</small></div><Button secondary onClick={() => void openLeague(l.league_id)}>Open</Button></div>)}</div> : <Empty>Create a league or join one to begin.</Empty>}
               </Section>
-              <Section notice={notice} title="Join with an invitation"><form className="inline-form" onSubmit={e => { e.preventDefault(); void act('join', { invite_token: joinToken.trim() }, 'Private invitation accepted.', async () => { setJoinToken(''); await loadCore(); }); }}><label>Invitation token <input value={joinToken} onChange={e => setJoinToken(e.target.value)} placeholder="UUID from league owner" required /></label><Button disabled={busy || !UUID.test(joinToken.trim())} type="submit">Join private league</Button></form><p className="muted">One-use invitations expire after seven days. Keep the token private.</p></Section>
               <Section notice={notice} title="Step 1 · Create a league"><p className="muted">A league is your ongoing community. Creating it makes you the owner and automatically opens a dedicated first-season setup screen.</p><form className="stack" onSubmit={e => { void createLeague(e); }}>
                 <label>League name <input value={leagueName} maxLength={100} onChange={e => setLeagueName(e.target.value)} required /></label><div className="two"><label>Visibility<select value={visibility} onChange={e => setVisibility(e.target.value as 'public' | 'private')}><option value="private">Private</option><option value="public">Public</option></select></label><label>IANA time zone<input value={timeZone} onChange={e => setTimeZone(e.target.value)} required placeholder="Africa/Johannesburg" /></label></div><Button type="submit" disabled={busy || !leagueName.trim()}>Create league and continue to game selection</Button></form></Section>
             </>}
@@ -536,7 +617,7 @@ function App() {
               <Section notice={notice} title="Longest streaks"><p className="muted">Streaks are independent statistics. They do not modify any championship score.</p>{board.streaks.length ? <div className="item-list">{board.streaks.map((s, i) => <div className="item" key={`${s.nickname}-${s.game}-${i}`}><div><strong>{s.nickname}</strong><small>{catalogueName(s.game)}</small></div><strong>{s.longest_streak} days</strong></div>)}</div> : <Empty>No verified streak data for this season.</Empty>}</Section></>}
           </>}
           {page === 'moderation' && <>
-            <div className="page-heading"><span className="overline">TRUSTED COMPETITION</span><h1>Reviews & community safety</h1><p>Only authorised owners or explicitly delegated moderators can review requests. The backend requires independent decisions and verified daily puzzle identity before approval.</p></div>
+            <div className="page-heading"><span className="overline">TRUSTED COMPETITION</span><h1>Reviews & community safety</h1><p>Only authorised owners or explicitly delegated moderators can review requests. League owners may review their own league submissions; ordinary moderators must remain independent. Verified puzzle identity is still required for approval.</p></div>
             <Section notice={notice} title="Select a league"><label>League<select value={leagueId} onChange={e => { setLeagueId(e.target.value); setReviews([]); setReports([]); setMembers([]); setPendingEvidence([]); setMemberId(''); }}><option value="">Select a league</option>{leagues.map(l => <option key={l.league_id} value={l.league_id}>{l.name}</option>)}</select></label><div className="actions"><Button secondary disabled={!leagueId || busy} onClick={() => void fetchReview()}>Load authorised queues</Button><Button secondary disabled={!leagueId || busy} onClick={() => void loadRoster()}>Load visible members</Button></div></Section>
             {auth && <>
               <Section notice={notice} title="Request an historical exception or score correction"><p className="muted">You can request a league-specific historical exception for your own submission. A correction requires an already-awarded entry and the same game/puzzle identity.</p><div className="stack"><label>Submission ID<select value={requestId} onChange={e => setRequestId(e.target.value)}><option value="">Choose your result</option>{history.map(h => <option value={h.id} key={h.id}>{catalogueName(h.game)} · {dateText(h.submitted_at)} · {h.review_status}</option>)}</select></label><label>Reason<input value={correctionReason} onChange={e => setCorrectionReason(e.target.value)} maxLength={2000} placeholder="Explain the request" /></label><div className="actions"><Button disabled={!leagueId || !UUID.test(requestId) || busy} onClick={() => void act('request_historical', { submission_id: requestId, league_id: leagueId, rationale: correctionReason.trim() }, 'Historical exception requested; independent review required.')}>Request historical exception</Button></div><label>Replacement original share (for correction only)<textarea value={correctionText} onChange={e => setCorrectionText(e.target.value)} rows={5} maxLength={16000} placeholder="Paste the corrected complete game share" /></label><Button secondary disabled={!leagueId || !UUID.test(requestId) || !correctionText.trim() || busy} onClick={() => void act('request_correction', { submission_id: requestId, league_id: leagueId, rationale: correctionReason.trim(), replacement_raw_text: correctionText }, 'Correction request submitted; no scores changed until independent approval.')}>Request score correction</Button></div></Section>
@@ -546,7 +627,7 @@ function App() {
                 {reviews.length ? reviews.map(r => <article key={r.request_id} className="review"><strong>{r.kind} · {catalogueName(r.game)}</strong><small>{dateText(r.submitted_at)} · {r.parse_status} · {r.review_status}</small><p>Request: {r.rationale}</p><details><summary>View submitted text</summary><pre>{r.raw_text}</pre>{r.correction_proposed_text && <><p>Proposed corrected text:</p><pre>{r.correction_proposed_text}</pre></>}</details><div className="actions"><Button disabled={busy || reviewRationale.trim().length < 3} onClick={() => void reviewAction(r.request_id, 'approved')}>Approve (server verifies)</Button><Button secondary disabled={busy || reviewRationale.trim().length < 3} onClick={() => void reviewAction(r.request_id, 'rejected')}>Reject</Button></div>{notice?.scope === 'review:' + r.request_id && <InlineNotice notice={notice} />}</article>) : <Empty>No requests loaded or none pending. Queue access is enforced server-side.</Empty>}
               </Section>
               <Section notice={notice} title={`Reports requiring action (${reports.length})`}>{reports.length ? reports.map(r => <div className="item" key={r.report_id}><div><strong>{r.reason}</strong><small>{dateText(r.created_at)} · Subject: {r.subject_user_id ? `${r.subject_user_id.slice(0, 8)}…` : 'General'}</small></div><Button disabled={busy} secondary onClick={() => void act('resolve_report', { league_id: leagueId, report_id: r.report_id }, 'Report resolved.', fetchReview)}>Resolve</Button></div>) : <Empty>No reports loaded or none pending.</Empty>}</Section>
-              <Section notice={notice} title="Roster & delegated permissions"><p className="muted">Roster visibility is restricted by database policies. Owners alone promote/demote moderators and assign individual permissions. Moderators can see this league roster; all action permissions default OFF. Review rights are independently delegated. No one can approve their own submission.</p>{members.length ? <div className="item-list">{members.map(m => <div className="item" key={m.user_id}><div><strong>{m.username} · {m.role}</strong><small className="monospace">UUID: {m.user_id} · joined {dateText(m.joined_at)}</small><small>Effective access: {m.role === 'owner' ? 'Owner (all league controls)' : m.role === 'moderator' ? ['roster', ...m.permissions].join(', ') : 'Own membership only'}</small></div><Button secondary onClick={() => { setMemberId(m.user_id); void navigator.clipboard?.writeText(m.user_id).catch(() => {}); }}>Select / copy UUID</Button></div>)}</div> : <Empty>No roster loaded. Members without roster privileges may only see their own membership.</Empty>}
+              <Section notice={notice} title="Roster & delegated permissions"><p className="muted">Roster visibility is restricted by database policies. Owners alone promote/demote moderators and assign individual permissions. Moderators can see this league roster; all action permissions default OFF. Review rights are independently delegated. League owners may approve their own league submissions with an audit trail; moderators may not self-approve.</p>{members.length ? <div className="item-list">{members.map(m => <div className="item" key={m.user_id}><div><strong>{m.username} · {m.role}</strong><small className="monospace">UUID: {m.user_id} · joined {dateText(m.joined_at)}</small><small>Effective access: {m.role === 'owner' ? 'Owner (all league controls)' : m.role === 'moderator' ? ['roster', ...m.permissions].join(', ') : 'Own membership only'}</small></div><Button secondary onClick={() => { setMemberId(m.user_id); void navigator.clipboard?.writeText(m.user_id).catch(() => {}); }}>Select / copy UUID</Button></div>)}</div> : <Empty>No roster loaded. Members without roster privileges may only see their own membership.</Empty>}
                 {isOwner(selected) && <div className="stack admin"><label>Selected member UUID<input value={memberId} onChange={e => setMemberId(e.target.value)} placeholder="Choose from roster" /></label><label>Reason for suspension (minimum 3 characters)<input value={moderationReason} onChange={e => setModerationReason(e.target.value)} /></label><div className="actions"><Button secondary disabled={!UUID.test(memberId) || busy} onClick={() => void run(async () => { await client?.roleRpc('set_league_moderator', { p_league_id: leagueId, p_member_user_id: memberId, p_is_moderator: true }); flash('Moderator role enabled. Review authority remains separately delegated.'); await loadRoster(); })}>Promote moderator</Button><Button secondary disabled={!UUID.test(memberId) || busy} onClick={() => void run(async () => { await client?.roleRpc('set_league_moderator', { p_league_id: leagueId, p_member_user_id: memberId, p_is_moderator: false }); flash('Moderator role removed.'); await loadRoster(); })}>Demote</Button><Button secondary disabled={!UUID.test(memberId) || busy} onClick={() => void act('delegate_review', { league_id: leagueId, member_id: memberId, enabled: true }, 'Review delegation granted to active moderator.')}>Grant review</Button><Button secondary disabled={!UUID.test(memberId) || busy} onClick={() => void act('delegate_review', { league_id: leagueId, member_id: memberId, enabled: false }, 'Review delegation revoked.')}>Revoke review</Button>{(['manage_invitations','manage_members'] as const).map(permission => <span key={permission} className="actions"><Button secondary disabled={!UUID.test(memberId) || chosenMember?.role!=='moderator' || busy} onClick={() => void act('set_permission', {league_id:leagueId,member_id:memberId,permission,enabled:true}, `Granted ${permission}.`,loadRoster)}>Grant {permission.replace('_',' ')}</Button><Button secondary disabled={!UUID.test(memberId) || chosenMember?.role!=='moderator' || busy} onClick={() => void act('set_permission', {league_id:leagueId,member_id:memberId,permission,enabled:false}, `Revoked ${permission}.`,loadRoster)}>Revoke {permission.replace('_',' ')}</Button></span>)}<Button danger disabled={!UUID.test(memberId) || moderationReason.trim().length < 3 || busy} onClick={() => void act('suspend_member', { league_id: leagueId, member_id: memberId, reason: moderationReason.trim() }, 'Member suspended.', loadRoster)}>Suspend</Button><Button secondary disabled={!UUID.test(memberId) || busy} onClick={() => void act('unsuspend_member', { league_id: leagueId, member_id: memberId }, 'Member suspension lifted.')}>Unsuspend</Button><Button danger disabled={!UUID.test(memberId) || busy} onClick={() => { if (window.confirm('Remove this member from the current league?')) void act('remove_member', { league_id: leagueId, member_id: memberId }, 'Current membership ended.', loadRoster); }}>Remove</Button></div></div>}
               {canManageMembers && !isOwner(selected) && <div className="stack admin"><p className="muted">Delegated ordinary-member administration only. You cannot alter owners, moderators or your own membership.</p><label>Selected ordinary member UUID<input readOnly value={memberId} /></label><label>Suspension reason<input value={moderationReason} onChange={e=>setModerationReason(e.target.value)} /></label><div className="actions"><Button danger disabled={busy || chosenMember?.role!=='member' || moderationReason.trim().length<3} onClick={() => void act('manage_member',{league_id:leagueId,member_id:memberId,operation:'suspend',reason:moderationReason.trim()},'Member suspended by delegated authority.',loadRoster)}>Suspend member</Button><Button danger disabled={busy || chosenMember?.role!=='member'} onClick={() => { if(window.confirm('Remove this ordinary member?')) void act('manage_member',{league_id:leagueId,member_id:memberId,operation:'remove'},'Ordinary membership ended.',loadRoster); }}>Remove member</Button></div></div>}
               </Section>
