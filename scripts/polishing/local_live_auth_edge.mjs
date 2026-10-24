@@ -1,0 +1,268 @@
+// Local integration test: real GoTrue tokens, real PostgREST and database,
+// exact Edge handler evaluated in-process (NOT deployed edge-runtime).
+// Synthetic .invalid users only; no network destinations except 127.0.0.1.
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {randomBytes, randomUUID} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
+import {stripTypeScriptTypes} from 'node:module';
+import {runInNewContext} from 'node:vm';
+import {resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
+
+const root=resolve(fileURLToPath(new URL('../..',import.meta.url)));
+// Only fixed, nonsecret diagnostic labels may reach the terminal.
+let gateStage='configuration';
+let gateSqlState='not_available';
+let gateHttpStatus='not_available';
+const envPath=process.argv[2], project=process.argv[3];
+export function parsePrivateStatus(text) {
+  const vars={};
+  for (const line of text.split(/\r?\n/u)) {
+    const m=line.match(/^([A-Z_]+)=(.*)$/u);
+    if (m) vars[m[1]]=m[2].replace(/^['"]|['"]$/gu,'');
+  }
+  const url=new URL(vars.API_URL??'http://not-local.invalid');
+  if (url.protocol!=='http:' || url.hostname!=='127.0.0.1' || !url.port ||
+      url.username || url.password || url.pathname!=='/' || url.search || url.hash) {
+    throw new Error('Local API must be a bare 127.0.0.1 HTTP URL');
+  }
+  for (const key of ['ANON_KEY','SERVICE_ROLE_KEY']) {
+    if (!vars[key] || vars[key].length < 50) throw new Error('Local API key absent');
+  }
+  return {base:vars.API_URL.replace(/\/$/u,''),anon:vars.ANON_KEY,service:vars.SERVICE_ROLE_KEY};
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url)===resolve(process.argv[1])) {
+ try {await main();} catch(err) {
+  // Never print tokens, payloads, HTTP response bodies or arbitrary database identifiers.
+  process.stdout.write('FAIL: synthetic local Auth/Edge integration assertion failed.\n');
+  process.stdout.write('FAILURE_GATE_STAGE: '+gateStage+'\n');
+  process.stdout.write('FAILURE_SQLSTATE: '+gateSqlState+'\n');
+  process.stdout.write('FAILURE_HTTP_STATUS: '+gateHttpStatus+'\n');
+  process.stderr.write('Private diagnosis category: '+
+   String(err?.name??'Error').replace(/[^a-zA-Z]/gu,'')+'\n');
+  process.exitCode=1;
+ }
+}
+
+async function main(){
+ assert.match(project??'',/^pzlauth_[a-f0-9]{8}$/);
+ assert.ok(envPath?.includes('Puzzle_League_Local_Auth_Edge_'));
+ const cfg=parsePrivateStatus(readFileSync(envPath,'utf8'));
+ let checks=0;
+ const pass=(message)=>{checks++;process.stdout.write('PASS: '+message+'\n');};
+ const json=async (url,opts={})=>{
+   assert.ok(url.startsWith(cfg.base+'/'),'URL escaped localhost API');
+   return fetch(url,opts);
+ };
+ const req=async(path,method,body,headers={})=>{
+   const res=await json(cfg.base+path,{method,headers:{'content-type':'application/json',...headers},
+     ...(body===undefined?{}:{body:JSON.stringify(body)})});
+   let value=null;try{value=await res.json();}catch{}
+   return {status:res.status,value};
+ };
+ const pub=(token)=>({apikey:cfg.anon,authorization:'Bearer '+token});
+ const priv=()=>({apikey:cfg.service,authorization:'Bearer '+cfg.service});
+ gateStage='synthetic_signup_and_jwt';
+ const nonce=randomBytes(8).toString('hex');
+ const users=[];
+ for(const label of ['owner','moderator','member','outsider']){
+   const email=`pzl-${label}-${nonce}@example.invalid`;
+   const password='Pz!'+randomBytes(24).toString('base64url');
+   const s=await req('/auth/v1/signup','POST',{email,password,data:{username:'isolated-'+label}}, {apikey:cfg.anon});
+   assert.ok(s.status>=200&&s.status<300&&s.value?.user?.id,'Synthetic signup denied');
+   const signin=await req('/auth/v1/token?grant_type=password','POST',{email,password},{apikey:cfg.anon});
+   assert.equal(signin.status,200,'Local GoTrue did not issue signed token');
+   const token=signin.value?.access_token;
+   assert.ok(typeof token==='string'&&token.split('.').length===3,'Access token is not JWT');
+   const me=await req('/auth/v1/user','GET',undefined,pub(token));
+   assert.equal(me.status,200,'GoTrue rejected its own signed token');
+   assert.equal(me.value.id,s.value.user.id,'Token subject mismatch');
+   users.push({label,id:s.value.user.id,token,email,password});
+ }
+ pass('four synthetic accounts sign up, sign in and verify real JWT subjects');
+ const [owner,mod,member,outsider]=users;
+ const league1=randomUUID(),league2=randomUUID();
+ gateStage='synthetic_league_fixture';
+ const sql=`begin;
+  insert into public.leagues(id,owner_user_id,name,visibility,time_zone) values
+   ('${league1}'::uuid,'${owner.id}'::uuid,'Isolated E2E League A','private','Etc/UTC'),
+   ('${league2}'::uuid,'${outsider.id}'::uuid,'Isolated E2E League B','private','Etc/UTC');
+  insert into public.league_memberships(league_id,user_id,role) values
+   ('${league1}'::uuid,'${mod.id}'::uuid,'moderator'),
+   ('${league1}'::uuid,'${member.id}'::uuid,'member');
+  commit;`;
+ // UUIDs above are generated by local real GoTrue / crypto.randomUUID, never copied from hosted.
+ const d=spawnSync('docker',['exec','-i','supabase_db_'+project,'psql','-X','-q','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1'],
+   {input:sql,encoding:'utf8',maxBuffer:1024*1024});
+ assert.equal(d.status,0,'Isolated SQL fixture could not be created');
+ pass('two synthetic private leagues and roles created in disposable Postgres');
+ // Independent source-reference contract in disposable Postgres only. This is a
+ // fabricated FIXTURE, not a claim about any real game's official puzzle identity.
+ gateStage='identity_sql_url_contract';
+ // Actual PostgreSQL regression (not JavaScript RegExp semantics). Transaction ROLLBACKs.
+ const urlContractSql=readFileSync(resolve(root,'supabase/tests/polishing_identity_reference_real_sql_gate.sql'),'utf8');
+ const urlCheck=spawnSync('docker',['exec','-i','supabase_db_'+project,'psql',
+   '-X','-q','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1','-v','VERBOSITY=sqlstate'],
+   {input:urlContractSql,encoding:'utf8',maxBuffer:1024*1024});
+ if(urlCheck.status!==0){
+   const code=String(urlCheck.stderr??'').match(/(?:ERROR|FATAL):\s*(?:SQLSTATE\s*)?([0-9A-Z]{5})(?:\s|$)/mu);
+   gateSqlState=code?.[1]??'not_available';
+ }
+ assert.equal(urlCheck.status,0,'Real PostgreSQL identity URL safety gate failed');
+ pass('real PostgreSQL HTTPS boundaries, operator-only registration, lookup and rollback');
+
+ gateStage='identity_operator_registration';
+ const fixtureKey='999999999';
+ const fixtureDay=new Date().toISOString().slice(0,10);
+ const refSql=`select app_private.p7_register_daily_reference('wordle','${fixtureKey}',
+   '${fixtureDay}'::date,'published_number','official_game',
+   'https://fixture.invalid/synthetic-reference',repeat('a',64),
+   now()-interval '1 minute',now()+interval '2 hours',null,null);`;
+ const evidenceAdd=spawnSync('docker',['exec','-i','supabase_db_'+project,'psql',
+   '-X','-q','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1','-v','VERBOSITY=sqlstate'],
+   {input:refSql,encoding:'utf8',maxBuffer:1024*1024});
+ if(evidenceAdd.status!==0) {
+   const match=String(evidenceAdd.stderr??'').match(/(?:ERROR|FATAL):\s*(?:SQLSTATE\s*)?([0-9A-Z]{5})(?:\s|$)/mu);
+   gateSqlState=match?.[1]??'not_available';
+ }
+ assert.equal(evidenceAdd.status,0,'Synthetic operator evidence registration failed');
+ gateStage='identity_public_acl';
+ const publicEvidence=await req('/rest/v1/rpc/p7_identity_reference','POST',
+   {p_game:'wordle',p_key:fixtureKey},pub(member.token));
+ assert.ok([401,403,404].includes(publicEvidence.status),'Public could access source registry');
+ gateStage='identity_privileged_lookup';
+ const privilegedEvidence=await req('/rest/v1/rpc/p7_identity_reference','POST',
+   {p_game:'wordle',p_key:fixtureKey},priv());
+ if(privilegedEvidence.status!==200) gateHttpStatus=String(privilegedEvidence.status);
+ assert.equal(privilegedEvidence.status,200,'Service-role reference lookup failed');
+ assert.equal(privilegedEvidence.value?.identity_key,fixtureKey);
+ assert.equal(privilegedEvidence.value?.puzzle_day,fixtureDay);
+ gateStage='identity_unknown_reference';
+ const noEvidence=await req('/rest/v1/rpc/p7_identity_reference','POST',
+   {p_game:'wordle',p_key:'unverified999'},priv());
+ assert.equal(noEvidence.status,200);
+ assert.equal(noEvidence.value,null,'Unknown identity was incorrectly certified');
+ pass('operator-only synthetic source registration; service-only lookup; unknown identity denied');
+
+ gateStage='edge_source_harness';
+ const source=readFileSync(resolve(root,'supabase/functions/competition/index.ts'),'utf8');
+ const noImport=source.replace(/^import\s+\{\s*parseShare,\s*previewPerformance\s*\}\s+from\s+['"]\.\/parser\.mjs['"];?\s*$/mu,
+   'const {parseShare,previewPerformance}=__parser;');
+ assert.notEqual(noImport,source,'Known handler parser import missing');
+ let handler;
+ const injected=noImport.replace(/^import\s+\{\s*evaluateEvidence\s*\}\s+from\s+['"]\.\/identity-evidence\.mjs['"];?\s*$/mu,
+   'const {evaluateEvidence}=__identity;');
+ runInNewContext(stripTypeScriptTypes(injected),{
+   Deno:{env:{get:(key)=>({SUPABASE_URL:cfg.base,SUPABASE_SERVICE_ROLE_KEY:cfg.service})[key]},
+     serve:(h)=>{handler=h;}},
+   fetch:json,Response,Request,Headers,
+   __identity:{evaluateEvidence:()=>({verified:false,reason:'not_involved_in_security_test'})},
+   __parser:{parseShare:()=>{throw new Error('No scoring in auth tests');},previewPerformance:()=>null}
+ },{filename:'competition/index.ts',timeout:5000});
+ assert.equal(typeof handler,'function');
+ const edge=async(user,action,data={})=>{
+   const request=new Request('http://127.0.0.1/competition',{method:'POST',
+    headers:{'content-type':'application/json',...(user?{authorization:'Bearer '+user.token}:{})},
+    body:JSON.stringify({action,data})});
+   const response=await handler(request);
+   let result;try{result=await response.json();}catch{result={};}
+   return {status:response.status,result};
+ };
+ const denial=(r,where)=>assert.ok([401,403,404,409].includes(r.status),where+' was not denied');
+ const positive=(r,where)=>assert.equal(r.status,200,where+' did not pass');
+
+ gateStage='real_jwt_denial_and_roster';
+ denial(await edge(null,'roster',{league_id:league1}),'anonymous roster');
+ const badToken={...owner,token:owner.token.split('.').map((v,i)=>i===2?(v[0]==='a'?'b':'a')+v.slice(1):v).join('.')};
+ denial(await edge(badToken,'roster',{league_id:league1}),'tampered signed JWT');
+ pass('anonymous and tampered signed JWTs rejected before privileged dispatch');
+
+ const direct=async(actor)=>req('/rest/v1/rpc/p7_polishing','POST',
+   {p_actor:owner.id,p_action:'roster',p_data:{league_id:league1}},pub(actor.token));
+ denial(await direct(owner),'direct authenticated call to privileged p7 function');
+ pass('direct authenticated PostgREST invocation cannot impersonate service role');
+
+ const own=await edge(owner,'roster',{league_id:league1,p_actor:outsider.id});
+ positive(own,'owner roster');
+ assert.ok(Array.isArray(own.result.result),'Owner roster not array');
+ assert.equal(own.result.result.filter(x=>x.user_id===owner.id).length,1,'Owner appears zero/multiple times');
+ assert.ok(own.result.result.some(x=>x.user_id===mod.id&&x.role==='moderator'));
+ const mr=await edge(mod,'roster',{league_id:league1});positive(mr,'moderator default roster');
+ denial(await edge(member,'roster',{league_id:league1}),'ordinary member roster');
+ denial(await edge(outsider,'roster',{league_id:league1}),'cross-league outsider roster');
+ denial(await edge(mod,'roster',{league_id:league2}),'cross-league moderator roster');
+ pass('owner and moderator see only their roster; member/outsider/cross-league denied');
+ gateStage='reviewer_evidence_route';
+ const pendingOwn=await edge(owner,'pending_sources',{league_id:league1});
+ positive(pendingOwn,'owner read-only pending reference evidence');
+ assert.ok(Array.isArray(pendingOwn.result.result),'Evidence suggestion result not array');
+ denial(await edge(mod,'pending_sources',{league_id:league1}),'moderator without review delegation reading pending evidence');
+ denial(await edge(member,'pending_sources',{league_id:league1}),'ordinary member reading pending evidence');
+ denial(await edge(outsider,'pending_sources',{league_id:league1}),'cross-league owner reading pending evidence');
+ const evidenceDirect=await req('/rest/v1/rpc/p7_pending_sources','POST',
+   {p_actor:owner.id,p_league:league1},pub(owner.token));
+ denial(evidenceDirect,'direct nonservice reviewer RPC');
+ pass('review suggestions owner or delegated-review only; direct and cross-league calls denied');
+
+ gateStage='moderator_grant_and_revocation';
+ denial(await edge(mod,'set_permission',{league_id:league1,member_id:mod.id,permission:'manage_invitations',enabled:true}),
+  'self-grant moderation');
+ denial(await edge(outsider,'set_permission',{league_id:league1,member_id:mod.id,permission:'manage_invitations',enabled:true}),
+  'cross-league owner grant');
+ denial(await edge(mod,'create_invitation',{league_id:league1}),'default-denied moderator invitation');
+ pass('new moderator default-denied for management and cannot self-elevate');
+
+ positive(await edge(owner,'set_permission',{league_id:league1,member_id:mod.id,permission:'manage_invitations',enabled:true}),
+  'owner grant invitation');
+ positive(await edge(mod,'create_invitation',{league_id:league1}),'granted moderator invitation');
+ positive(await edge(owner,'set_permission',{league_id:league1,member_id:mod.id,permission:'manage_invitations',enabled:false}),
+  'owner revoke invitation');
+ denial(await edge(mod,'create_invitation',{league_id:league1}),'revoked moderator invitation');
+ pass('owner grant takes effect and revocation immediately denies moderator');
+
+ gateStage='owner_only_moderator_role';
+ const roleCall=async(actor,target,makeMod)=>req('/rest/v1/rpc/set_league_moderator','POST',
+  {p_league_id:league1,p_member_user_id:target.id,p_is_moderator:makeMod},pub(actor.token));
+ denial(await roleCall(mod,member,true),'moderator promoting member');
+ denial(await roleCall(outsider,member,true),'other league owner promoting member');
+ const promoted=await roleCall(owner,member,true);
+ assert.ok([200,204].includes(promoted.status),'Owner cannot promote member');
+ const fresh=await edge(member,'roster',{league_id:league1});positive(fresh,'new moderator roster');
+ const promotedRow=(await edge(owner,'roster',{league_id:league1})).result.result.find(x=>x.user_id===member.id);
+ assert.equal(promotedRow?.role,'moderator');
+ assert.ok(!promotedRow?.permissions?.some(x=>['manage_invitations','manage_members','review'].includes(x)),
+  'New moderator inherited forbidden authority');
+ const demoted=await roleCall(owner,member,false);
+ assert.ok([200,204].includes(demoted.status),'Owner cannot demote moderator');
+ denial(await edge(member,'roster',{league_id:league1}),'demoted member roster');
+ pass('owner-only promote/demote; new moderator roster only; demotion immediately denies');
+
+ gateStage='direct_table_rls';
+ const anonTable=await req('/rest/v1/league_memberships?league_id=eq.'+league1+'&select=user_id,role',
+  'GET',undefined,{apikey:cfg.anon,authorization:'Bearer '+cfg.anon});
+ assert.ok([200,401,403,404].includes(anonTable.status),'Anonymous roster produced unexpected response');
+ if(anonTable.status===200) assert.equal(anonTable.value.length,0,'Anonymous roster table leaked');
+ const crossTable=await req('/rest/v1/league_memberships?league_id=eq.'+league1+'&select=user_id,role',
+  'GET',undefined,pub(outsider.token));
+ assert.ok([200,401,403,404].includes(crossTable.status),'Cross-league table read produced unexpected response');
+ if(crossTable.status===200) assert.equal(crossTable.value.length,0,'Cross-league RLS roster leak');
+ pass('real PostgREST RLS rejects anonymous and cross-league roster reads');
+
+ gateStage='account_deletion_reauthentication';
+ const requestDelete=await edge(owner,'request_deletion',{current_password:owner.password});
+ positive(requestDelete,'reauthenticated deletion request');
+ assert.equal(requestDelete.result.result?.status,'identity_verified');
+ assert.ok(!JSON.stringify(requestDelete.result).includes(owner.password),'Password leaked in response');
+ const statusSelf=await edge(owner,'deletion_status');positive(statusSelf,'own deletion status');
+ assert.ok(statusSelf.result.result.some(x=>x.status==='identity_verified'));
+ const statusOther=await edge(mod,'deletion_status');positive(statusOther,'other deletion status');
+ assert.equal(statusOther.result.result.length,0,'Other user sees deletion status');
+ denial(await edge(owner,'request_deletion',{current_password:owner.password}),'duplicate deletion request');
+ denial(await edge(mod,'request_deletion',{current_password:'wrongpw!'}),'wrong password deletion request');
+ pass('actual GoTrue reauthentication protects private deletion register; no deletion performed');
+
+ gateStage='all_synthetic_checks_passed';
+ process.stdout.write('TEST_SUMMARY: '+checks+' real-local integration groups PASS.\n');
+}

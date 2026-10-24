@@ -8,7 +8,7 @@ export type Board = { combined: Score[]; by_game: Score[]; streaks: Streak[] };
 export type History = { id: string; game: GameId | null; parse_status: string; review_status: string; submitted_at: string };
 export type Review = { request_id: string; submission_id: string; kind: string; game: string; submitted_at: string; raw_text: string; parse_status: string; review_status: string; rationale: string; correction_proposed_text?: string | null };
 export type Report = { report_id: string; reason: string; subject_user_id: string | null; created_at: string };
-export type Member = { id: string; user_id: string; role: string; joined_at: string };
+export type Member = { id: string | null; user_id: string; username: string; role: 'owner' | 'moderator' | 'member'; joined_at: string; permissions: string[] };
 export function arrayOf<T>(value: unknown): T[] { return Array.isArray(value) ? value as T[] : []; }
 export function boardFrom(value: unknown): Board {
   const obj = value && typeof value === 'object' ? value as Record<string, unknown> : {};
