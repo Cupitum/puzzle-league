@@ -35,7 +35,8 @@ test('the thirteen applied baseline migrations stay intact; candidate additions 
     '20261023100000_polishing_permissions_and_requests.sql',
     '20261023100100_polishing_verified_streak.sql',
     '20261023100200_polishing_identity_evidence.sql',
-    '20261024170000_polishing_account_recovery_and_history.sql']);
+    '20261024170000_polishing_account_recovery_and_history.sql',
+    '20261025120000_p9_local_calendar_identity.sql']);
 });
 test('static headers protect SW, HTML and app shell', () => {
   const h=file('public/_headers');
