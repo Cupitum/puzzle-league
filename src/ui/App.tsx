@@ -378,7 +378,10 @@ function App() {
     if (!online) return flash('You are offline; reconnect before submitting.', true);
     if (!understands) return flash('Check the ownership and review acknowledgement before submitting.', true);
     await run(async () => {
-      const res = await api.call('submit', { raw_text: rawText, method: shareMethod }) as Record<string, unknown>;
+      const localNow = new Date();
+      const localDay = `${localNow.getFullYear()}-${String(localNow.getMonth()+1).padStart(2,'0')}-${String(localNow.getDate()).padStart(2,'0')}`;
+      const res = await api.call('submit', { raw_text: rawText, method: shareMethod,
+        local_day: localDay, utc_offset_minutes: localNow.getTimezoneOffset() }) as Record<string, unknown>;
       setLastSubmit({ id: String(res.submission_id), awarded: Number(res.awarded ?? 0), duplicate: Boolean(res.duplicate), review: Boolean(res.review_required) });
       setRawText(''); setUnderstands(false); setShareMethod('paste');
       await loadCore(); flash('The server returned a submission receipt. See its status below.');

@@ -1,7 +1,7 @@
 // Supabase Edge Function: caller JWT is validated via GoTrue before any privileged RPC.
 // The project intentionally keeps the service role key strictly inside the Edge runtime.
 import { parseShare, previewPerformance } from './parser.mjs';
-import { evaluateEvidence } from './identity-evidence.mjs';
+import { dateIdentityDecision, DAILY_IDENTITY_VERSION } from './daily-identity.mjs';
 const json = (obj:unknown,status=200) => new Response(JSON.stringify(obj), {
   status, headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store',
     'access-control-allow-origin':'*','access-control-allow-headers':'authorization, apikey, content-type',
@@ -170,35 +170,26 @@ Deno.serve(async req => {
       return json({ok:true,result:await res.json()});
     } catch {return json({error:'Personal dashboard unavailable'},503);}
   }
-  let identityAudit:{decision:string;reason:string;source_kind:string|null;game:string|null;key:string|null}|null=null;
   if(action==='submit') {
     if(typeof data.raw_text!=='string'||data.raw_text.length>16000)return json({error:'Share text required (max 16 KB)'},400);
     if(!['paste','android_share'].includes(String(data.method))) return json({error:'Invalid submission method'},400);
     const p=parseShare(data.raw_text);
     if(p.status==='invalid' && p.game===null && p.raw_text.length>16000)return json({error:'Text too large'},413);
-    // Independent source reference is created only by the database operator.
-    // Fail closed: an outage, expired evidence or conflict NEVER certifies the share.
-    let evidence:unknown=null;
-    if(p.game && p.identity_key && ['recognized_valid','needs_review'].includes(p.status)) {
-      try {
-        const probe=await fetch(`${url}/rest/v1/rpc/p7_identity_reference`,{
-          method:'POST',headers:{apikey:secret,authorization:`Bearer ${secret}`,
-            'content-type':'application/json',accept:'application/json'},
-          body:JSON.stringify({p_game:p.game,p_key:p.identity_key})});
-        if(probe.ok) evidence=await probe.json();
-      } catch { /* Source/read outage: preserve the pending review path. */ }
-    }
-    const resolved=evaluateEvidence(p,evidence);
-    identityAudit={decision:resolved.verified?'reference_matched':'pending_unverified',
-      reason:resolved.reason,source_kind:resolved.verified?resolved.source_kind:null,
-      game:p.game,key:p.identity_key};
-    // A needs_review format is only promoted after an independent source and
-    // a specific per-game shape/mode/date contract succeed. The SQL dispatcher
-    // still checks 48-hour window, duplicate, membership and season rules.
-    data={raw_text:p.raw_text,game:p.game,
-      status:resolved.verified?'recognized_valid':
-        (p.status==='recognized_valid'?'needs_review':p.status),identity_key:p.identity_key,
-      fields:p.fields,parser_version:p.parser_version,method:data.method};
+    // The approved pilot uses the player's local calendar day. The Edge worker
+    // cross-checks that day with its own clock and reported UTC offset. The SQL
+    // dispatcher performs the SAME validation again before accepting or awarding.
+    const claimedDay=typeof data.local_day==='string'?data.local_day:null;
+    const claimedOffset=typeof data.utc_offset_minutes==='number'?data.utc_offset_minutes:null;
+    const resolved=dateIdentityDecision(p,claimedDay,claimedOffset);
+    // Performance interpretation remains separate from identity verification.
+    // Never promote an unsupported score even if the number matches.
+    const status=resolved.verified && previewPerformance(p)!==null
+      ? 'recognized_valid' :
+      (p.status==='recognized_valid'?'needs_review':p.status);
+    data={raw_text:p.raw_text,game:p.game,status,identity_key:p.identity_key,
+      fields:p.fields,parser_version:p.parser_version,method:data.method,
+      identity_method:DAILY_IDENTITY_VERSION,local_day:claimedDay,
+      utc_offset_minutes:claimedOffset};
   } else if(action==='request_correction') {
     if(typeof data.replacement_raw_text!=='string'||data.replacement_raw_text.length>16000)
       return json({error:'Replacement share required'},400);
@@ -229,17 +220,6 @@ Deno.serve(async req => {
         code:res.status},res.status===401||res.status===403?403:409);
     }
     const result=await res.json();
-    if(action==='submit' && identityAudit && result?.submission_id && !result.duplicate) {
-      // Audit is separate from scoring. If unavailable, never claim it succeeded.
-      try {
-        await fetch(`${url}/rest/v1/rpc/p7_log_identity_decision`,{
-          method:'POST',headers:{apikey:secret,authorization:`Bearer ${secret}`,
-            'content-type':'application/json'},
-          body:JSON.stringify({p_actor:actor,p_submission:result.submission_id,
-            p_game:identityAudit.game,p_key:identityAudit.key,p_outcome:identityAudit.decision,
-            p_reason:identityAudit.reason,p_source_kind:identityAudit.source_kind})});
-      } catch { /* Submission receipt and immutable stored original remain authoritative. */ }
-    }
     return json({ok:true,result});
   } catch {return json({error:'Competition service unavailable'},503);}
 });
